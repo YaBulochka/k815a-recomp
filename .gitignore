@@ -1,0 +1,19 @@
+# Артефакты извлечения и захвата (не коммитим)
+/extracted/
+/captures/
+
+# Оригинальная прошивка (бинарник, не коммитим)
+MKESPN K815.EN[[]20250610[]].exe
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db

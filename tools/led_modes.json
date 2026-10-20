@@ -1,0 +1,24 @@
+{
+  "comment": "Catalogue of K815 LED effects. The effect number lives in phase B, byte 0x1a, low nibble.",
+  "source": "extracted/app/1/skins/1_INI_EN/KbIndexText.ini (UTF-16 LE): the LED effect table starts at index 30, effect number = index - 30",
+  "verified": "swept through the application: HR_LED_MODE=0/1/2/3/4/5/7/8/9/10/11 matched both the name shown in the UI and byte 0x1a",
+  "modes": [
+    { "mode": 0,  "en": "Backlight Off",        "cn": "关灯",     "in_ui_list": true  },
+    { "mode": 1,  "en": "Breathing",            "cn": "呼吸",     "in_ui_list": true  },
+    { "mode": 2,  "en": "Constant",             "cn": "常亮",     "in_ui_list": true, "single_color": true },
+    { "mode": 3,  "en": "Response",             "cn": "反应",     "in_ui_list": false },
+    { "mode": 4,  "en": "Neon",                 "cn": "霓虹",     "in_ui_list": true  },
+    { "mode": 5,  "en": "Ambilight",            "cn": "流光溢彩", "in_ui_list": true  },
+    { "mode": 6,  "en": "Comet Tail",           "cn": "彗星拖尾", "in_ui_list": false },
+    { "mode": 7,  "en": "Single Water",         "cn": "单灯流水", "in_ui_list": true  },
+    { "mode": 8,  "en": "Flow Water",           "cn": "行云流水", "in_ui_list": true  },
+    { "mode": 9,  "en": "Flashing",             "cn": "闪烁",     "in_ui_list": true  },
+    { "mode": 10, "en": "Monochromatic Wave",   "cn": "单色波浪", "in_ui_list": false },
+    { "mode": 11, "en": "Partition",            "cn": "分区",     "in_ui_list": true  },
+    { "mode": 12, "en": "Combination",          "cn": "组合",     "in_ui_list": false }
+  ],
+  "out_of_range": {
+    "comment": "Values outside 0..12 are undefined: with HR_LED_MODE=16 the application showed 'Comet Tail' while 0x00 went into the stream. The skin has one more entry, 'Cycle Color' (循环颜色) at index 46, but it does not fit the 4-bit field of 0x1a.",
+    "skin_only_modes": [ { "en": "Cycle Color", "cn": "循环颜色", "skin_index": 46 } ]
+  }
+}

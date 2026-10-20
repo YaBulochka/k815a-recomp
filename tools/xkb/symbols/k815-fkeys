@@ -1,0 +1,28 @@
+// Wrapper layout for the MKESPN K815: restores the real F13..F24.
+//
+// The xkb rules for evdev always append "+inet(evdev)" after the layout, and
+// symbols/inet remaps <FK13>..<FK24> to XF86 media keys. This layer is added
+// AFTER inet(evdev) (see rules/evdev) and restores F13..F24.
+//
+// Install into ~/.config/xkb/symbols/ and enable it through
+// ~/.config/xkb/rules/evdev:  * = +inet(evdev)+k815-fkeys
+//
+// See KEYS.md and tools/install_fkeys_xkb.sh.
+
+default partial alphanumeric_keys
+xkb_symbols "basic" {
+    name[Group1] = "F13-F24 function keys";
+
+    key <FK13> { [ F13 ] };
+    key <FK14> { [ F14 ] };
+    key <FK15> { [ F15 ] };
+    key <FK16> { [ F16 ] };
+    key <FK17> { [ F17 ] };
+    key <FK18> { [ F18 ] };
+    key <FK19> { [ F19 ] };
+    key <FK20> { [ F20 ] };
+    key <FK21> { [ F21 ] };
+    key <FK22> { [ F22 ] };
+    key <FK23> { [ F23 ] };
+    key <FK24> { [ F24 ] };
+};

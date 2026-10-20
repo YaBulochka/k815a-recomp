@@ -1,0 +1,31 @@
+# MKESPN K815 macro keyboard: give the desktop user direct access to the
+# vendor HID interface used for configuration.
+#
+# Both tools/k815ctl.py and a browser talking WebHID reach the keyboard through
+# /dev/hidrawN with feature reports on usage page 0xFF01.  Those nodes belong
+# to root:input, and the ACL that systemd-logind grants the local session does
+# not always cover a vendor collection, so the interface can be invisible to
+# the browser or unopenable by the CLI.  This rule tags the node for the
+# logged-in user instead of running anything as root.
+#
+# Install (needs root, run it yourself):
+#   sudo install -m 0644 tools/udev/99-mkespn-k815.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger --subsystem-match=hidraw
+# or: sudo sh tools/install_udev.sh
+#
+# Verify after replugging the keyboard:
+#   ls -l /dev/hidraw*            # the K815 node should list your user tag
+#   python3 tools/k815ctl.py list
+
+# VID 0x30FA is confirmed from the vendor application; PID 0x2350 is the pair
+# it looks for first (see PROTOCOL.md).  The physical unit is unverified.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="30fa", ATTRS{idProduct}=="2350", TAG+="uaccess"
+
+# Other PID candidates from the same vendor table, uncomment if your unit
+# reports one of them (`lsusb` or `k815ctl.py list` shows the real pair):
+#SUBSYSTEM=="hidraw", ATTRS{idVendor}=="30fa", ATTRS{idProduct}=="2130", TAG+="uaccess"
+#SUBSYSTEM=="hidraw", ATTRS{idVendor}=="30fa", ATTRS{idProduct}=="2330", TAG+="uaccess"
+
+# Fallback without systemd-logind ACLs: uncomment and put yourself in plugdev.
+#SUBSYSTEM=="hidraw", ATTRS{idVendor}=="30fa", ATTRS{idProduct}=="2350", MODE="0660", GROUP="plugdev"

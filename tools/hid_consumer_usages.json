@@ -1,0 +1,1826 @@
+{
+"0000": [
+"UNASSIGNED",
+"Unassigned"
+],
+"0001": [
+"CONTROL",
+"Control"
+],
+"0002": [
+"NUMERIC_KEY_PAD",
+"Numeric Key Pad"
+],
+"0003": [
+"PROGRAMMABLE_BUTTONS",
+"Programmable Buttons"
+],
+"0004": [
+"MICROPHONE",
+"Microphone"
+],
+"0005": [
+"HEADPHONE",
+"Headphone"
+],
+"0006": [
+"GRAPHIC_EQUALIZER",
+"Graphic Equalizer"
+],
+"0007": [
+"KEYBOARD_BACKLIGHT",
+"Keyboard Backlight"
+],
+"000c": [
+"WIRELESS_RADIO_CONTROLS",
+"Wireless Radio Controls"
+],
+"0020": [
+"PLUS_10",
+"Plus 10"
+],
+"0021": [
+"PLUS_100",
+"Plus 100"
+],
+"0022": [
+"AM_PM",
+"Am Pm"
+],
+"0030": [
+"POWER",
+"Power"
+],
+"0031": [
+"RESET",
+"Reset"
+],
+"0032": [
+"SLEEP",
+"Sleep"
+],
+"0033": [
+"SLEEP_AFTER",
+"Sleep After"
+],
+"0034": [
+"SLEEP_MODE",
+"Sleep Mode"
+],
+"0035": [
+"ILLUMINATION",
+"Illumination"
+],
+"0036": [
+"FUNCTION_BUTTONS",
+"Function Buttons"
+],
+"0040": [
+"MENU",
+"Menu"
+],
+"0041": [
+"MENU_PICK",
+"Menu Pick"
+],
+"0042": [
+"MENU_UP",
+"Menu Up"
+],
+"0043": [
+"MENU_DOWN",
+"Menu Down"
+],
+"0044": [
+"MENU_LEFT",
+"Menu Left"
+],
+"0045": [
+"MENU_RIGHT",
+"Menu Right"
+],
+"0046": [
+"MENU_ESCAPE",
+"Menu Escape"
+],
+"0047": [
+"MENU_VALUE_INCREASE",
+"Menu Value Increase"
+],
+"0048": [
+"MENU_VALUE_DECREASE",
+"Menu Value Decrease"
+],
+"0060": [
+"DATA_ON_SCREEN",
+"Data On Screen"
+],
+"0061": [
+"CLOSED_CAPTION",
+"Closed Caption"
+],
+"0062": [
+"CLOSED_CAPTION_SELECT",
+"Closed Caption Select"
+],
+"0063": [
+"VCR_TV",
+"Vcr TV"
+],
+"0064": [
+"BROADCAST_MODE",
+"Broadcast Mode"
+],
+"0065": [
+"SNAPSHOT",
+"Snapshot"
+],
+"0066": [
+"STILL",
+"Still"
+],
+"0067": [
+"PICTURE_IN_PICTURE_TOGGLE",
+"Picture In Picture Toggle"
+],
+"0068": [
+"PICTURE_IN_PICTURE_SWAP",
+"Picture In Picture Swap"
+],
+"0069": [
+"RED_MENU_BUTTON",
+"Red Menu Button"
+],
+"006a": [
+"GREEN_MENU_BUTTON",
+"Green Menu Button"
+],
+"006b": [
+"BLUE_MENU_BUTTON",
+"Blue Menu Button"
+],
+"006c": [
+"YELLOW_MENU_BUTTON",
+"Yellow Menu Button"
+],
+"006d": [
+"ASPECT",
+"Aspect"
+],
+"006e": [
+"3D_MODE_SELECT",
+"3D Mode Select"
+],
+"006f": [
+"DISPLAY_BRIGHTNESS_INCREMENT",
+"Display Brightness Increment"
+],
+"0070": [
+"DISPLAY_BRIGHTNESS_DECREMENT",
+"Display Brightness Decrement"
+],
+"0071": [
+"DISPLAY_BRIGHTNESS",
+"Display Brightness"
+],
+"0072": [
+"DISPLAY_BACKLIGHT_TOGGLE",
+"Display Backlight Toggle"
+],
+"0073": [
+"DISPLAY_SET_BRIGHTNESS_TO_MINIMUM",
+"Display Set Brightness To Minimum"
+],
+"0074": [
+"DISPLAY_SET_BRIGHTNESS_TO_MAXIMUM",
+"Display Set Brightness To Maximum"
+],
+"0075": [
+"DISPLAY_SET_AUTO_BRIGHTNESS",
+"Display Set Auto Brightness"
+],
+"0076": [
+"CAMERA_ACCESS_ENABLED",
+"Camera Access Enabled"
+],
+"0077": [
+"CAMERA_ACCESS_DISABLED",
+"Camera Access Disabled"
+],
+"0078": [
+"CAMERA_ACCESS_TOGGLE",
+"Camera Access Toggle"
+],
+"0079": [
+"KEYBOARD_BRIGHTNESS_INCREMENT",
+"Keyboard Brightness Increment"
+],
+"007a": [
+"KEYBOARD_BRIGHTNESS_DECREMENT",
+"Keyboard Brightness Decrement"
+],
+"007b": [
+"KEYBOARD_BACKLIGHT_SET_LEVEL",
+"Keyboard Backlight Set Level"
+],
+"007c": [
+"KEYBOARD_BACKLIGHT_OOC",
+"Keyboard Backlight OOC"
+],
+"007d": [
+"KEYBOARD_BACKLIGHT_SET_MINIMUM",
+"Keyboard Backlight Set Minimum"
+],
+"007e": [
+"KEYBOARD_BACKLIGHT_SET_MAXIMUM",
+"Keyboard Backlight Set Maximum"
+],
+"007f": [
+"KEYBOARD_BACKLIGHT_AUTO",
+"Keyboard Backlight Auto"
+],
+"0080": [
+"SELECTION",
+"Selection"
+],
+"0081": [
+"ASSIGN_SELECTION",
+"Assign Selection"
+],
+"0082": [
+"MODE_STEP",
+"Mode Step"
+],
+"0083": [
+"RECALL_LAST",
+"Recall Last"
+],
+"0084": [
+"ENTER_CHANNEL",
+"Enter Channel"
+],
+"0085": [
+"ORDER_MOVIE",
+"Order Movie"
+],
+"0086": [
+"CHANNEL",
+"Channel"
+],
+"0087": [
+"MEDIA_SELECTION",
+"Media Selection"
+],
+"0088": [
+"MEDIA_SELECT_COMPUTER",
+"Media Select Computer"
+],
+"0089": [
+"MEDIA_SELECT_TV",
+"Media Select TV"
+],
+"008a": [
+"MEDIA_SELECT_WWW",
+"Media Select WWW"
+],
+"008b": [
+"MEDIA_SELECT_DVD",
+"Media Select Dvd"
+],
+"008c": [
+"MEDIA_SELECT_TELEPHONE",
+"Media Select Telephone"
+],
+"008d": [
+"MEDIA_SELECT_PROGRAM_GUIDE",
+"Media Select Program Guide"
+],
+"008e": [
+"MEDIA_SELECT_VIDEO_PHONE",
+"Media Select Video Phone"
+],
+"008f": [
+"MEDIA_SELECT_GAMES",
+"Media Select Games"
+],
+"0090": [
+"MEDIA_SELECT_MESSAGES",
+"Media Select Messages"
+],
+"0091": [
+"MEDIA_SELECT_CD",
+"Media Select Cd"
+],
+"0092": [
+"MEDIA_SELECT_VCR",
+"Media Select Vcr"
+],
+"0093": [
+"MEDIA_SELECT_TUNER",
+"Media Select Tuner"
+],
+"0094": [
+"QUIT",
+"Quit"
+],
+"0095": [
+"HELP",
+"Help"
+],
+"0096": [
+"MEDIA_SELECT_TAPE",
+"Media Select Tape"
+],
+"0097": [
+"MEDIA_SELECT_CABLE",
+"Media Select Cable"
+],
+"0098": [
+"MEDIA_SELECT_SATELLITE",
+"Media Select Satellite"
+],
+"0099": [
+"MEDIA_SELECT_SECURITY",
+"Media Select Security"
+],
+"009a": [
+"MEDIA_SELECT_HOME",
+"Media Select Home"
+],
+"009b": [
+"MEDIA_SELECT_CALL",
+"Media Select Call"
+],
+"009c": [
+"CHANNEL_INCREMENT",
+"Channel Increment"
+],
+"009d": [
+"CHANNEL_DECREMENT",
+"Channel Decrement"
+],
+"009e": [
+"MEDIA_SELECT_SAP",
+"Media Select Sap"
+],
+"00a0": [
+"VCR_PLUS",
+"Vcr Plus"
+],
+"00a1": [
+"ONCE",
+"Once"
+],
+"00a2": [
+"DAILY",
+"Daily"
+],
+"00a3": [
+"WEEKLY",
+"Weekly"
+],
+"00a4": [
+"MONTHLY",
+"Monthly"
+],
+"00b0": [
+"PLAY",
+"Play"
+],
+"00b1": [
+"PAUSE",
+"Pause"
+],
+"00b2": [
+"RECORD",
+"Record"
+],
+"00b3": [
+"FAST_FORWARD",
+"Fast Forward"
+],
+"00b4": [
+"REWIND",
+"Rewind"
+],
+"00b5": [
+"SCAN_NEXT_TRACK",
+"Scan Next Track"
+],
+"00b6": [
+"SCAN_PREVIOUS_TRACK",
+"Scan Previous Track"
+],
+"00b7": [
+"STOP",
+"Stop"
+],
+"00b8": [
+"EJECT",
+"Eject"
+],
+"00b9": [
+"RANDOM_PLAY",
+"Random Play"
+],
+"00ba": [
+"SELECT_DISC",
+"Select Disc"
+],
+"00bb": [
+"ENTER_DISC",
+"Enter Disc"
+],
+"00bc": [
+"REPEAT",
+"Repeat"
+],
+"00bd": [
+"TRACKING",
+"Tracking"
+],
+"00be": [
+"TRACK_NORMAL",
+"Track Normal"
+],
+"00bf": [
+"SLOW_TRACKING",
+"Slow Tracking"
+],
+"00c0": [
+"FRAME_FORWARD",
+"Frame Forward"
+],
+"00c1": [
+"FRAME_BACK",
+"Frame Back"
+],
+"00c2": [
+"MARK",
+"Mark"
+],
+"00c3": [
+"CLEAR_MARK",
+"Clear Mark"
+],
+"00c4": [
+"REPEAT_FROM_MARK",
+"Repeat From Mark"
+],
+"00c5": [
+"RETURN_TO_MARK",
+"Return To Mark"
+],
+"00c6": [
+"SEARCH_MARK_FORWARD",
+"Search Mark Forward"
+],
+"00c7": [
+"SEARCH_MARK_BACKWARDS",
+"Search Mark Backwards"
+],
+"00c8": [
+"COUNTER_RESET",
+"Counter Reset"
+],
+"00c9": [
+"SHOW_COUNTER",
+"Show Counter"
+],
+"00ca": [
+"TRACKING_INCREMENT",
+"Tracking Increment"
+],
+"00cb": [
+"TRACKING_DECREMENT",
+"Tracking Decrement"
+],
+"00cc": [
+"STOP_EJECT",
+"Stop Eject"
+],
+"00cd": [
+"PLAY_PAUSE",
+"Play Pause"
+],
+"00ce": [
+"PLAY_SKIP",
+"Play Skip"
+],
+"00cf": [
+"VOICE_COMMAND",
+"Voice Command"
+],
+"00d0": [
+"INVOKE_CAPTURE_INTERFACE",
+"Invoke Capture Interface"
+],
+"00d1": [
+"START_OR_STOP_GAME_RECORDING",
+"Start Or Stop Game Recording"
+],
+"00d2": [
+"HISTORICAL_GAME_CAPTURE",
+"Historical Game Capture"
+],
+"00d3": [
+"CAPTURE_GAME_SCREENSHOT",
+"Capture Game Screenshot"
+],
+"00d4": [
+"SHOW_OR_HIDE_RECORDING_INDICATOR",
+"Show Or Hide Recording Indicator"
+],
+"00d5": [
+"START_OR_STOP_MICROPHONE_CAPTURE",
+"Start Or Stop Microphone Capture"
+],
+"00d6": [
+"START_OR_STOP_CAMERA_CAPTURE",
+"Start Or Stop Camera Capture"
+],
+"00d7": [
+"START_OR_STOP_GAME_BROADCAST",
+"Start Or Stop Game Broadcast"
+],
+"00d8": [
+"START_OR_STOP_VOICE_DICTATION_SESSION",
+"Start Or Stop Voice Dictation Session"
+],
+"00d9": [
+"INVOKE_DISMISS_EMOJI_PICKER",
+"Invoke Dismiss Emoji Picker"
+],
+"00e0": [
+"VOLUME",
+"Volume"
+],
+"00e1": [
+"BALANCE",
+"Balance"
+],
+"00e2": [
+"MUTE",
+"Mute"
+],
+"00e3": [
+"BASS",
+"Bass"
+],
+"00e4": [
+"TREBLE",
+"Treble"
+],
+"00e5": [
+"BASS_BOOST",
+"Bass Boost"
+],
+"00e6": [
+"SURROUND_MODE",
+"Surround Mode"
+],
+"00e7": [
+"LOUDNESS",
+"Loudness"
+],
+"00e8": [
+"MPX",
+"Mpx"
+],
+"00e9": [
+"VOLUME_INCREMENT",
+"Volume Increment"
+],
+"00ea": [
+"VOLUME_DECREMENT",
+"Volume Decrement"
+],
+"00f0": [
+"SPEED_SELECT",
+"Speed Select"
+],
+"00f1": [
+"PLAYBACK_SPEED",
+"Playback Speed"
+],
+"00f2": [
+"STANDARD_PLAY",
+"Standard Play"
+],
+"00f3": [
+"LONG_PLAY",
+"Long Play"
+],
+"00f4": [
+"EXTENDED_PLAY",
+"Extended Play"
+],
+"00f5": [
+"SLOW",
+"Slow"
+],
+"0100": [
+"FAN_ENABLE",
+"Fan Enable"
+],
+"0101": [
+"FAN_SPEED",
+"Fan Speed"
+],
+"0102": [
+"LIGHT_ENABLE",
+"Light Enable"
+],
+"0103": [
+"LIGHT_ILLUMINATION_LEVEL",
+"Light Illumination Level"
+],
+"0104": [
+"CLIMATE_CONTROL_ENABLE",
+"Climate Control Enable"
+],
+"0105": [
+"ROOM_TEMPERATURE",
+"Room Temperature"
+],
+"0106": [
+"SECURITY_ENABLE",
+"Security Enable"
+],
+"0107": [
+"FIRE_ALARM",
+"Fire Alarm"
+],
+"0108": [
+"POLICE_ALARM",
+"Police Alarm"
+],
+"0109": [
+"PROXIMITY",
+"Proximity"
+],
+"010a": [
+"MOTION",
+"Motion"
+],
+"010b": [
+"DURESS_ALARM",
+"Duress Alarm"
+],
+"010c": [
+"HOLDUP_ALARM",
+"Holdup Alarm"
+],
+"010d": [
+"MEDICAL_ALARM",
+"Medical Alarm"
+],
+"0150": [
+"BALANCE_RIGHT",
+"Balance Right"
+],
+"0151": [
+"BALANCE_LEFT",
+"Balance Left"
+],
+"0152": [
+"BASS_INCREMENT",
+"Bass Increment"
+],
+"0153": [
+"BASS_DECREMENT",
+"Bass Decrement"
+],
+"0154": [
+"TREBLE_INCREMENT",
+"Treble Increment"
+],
+"0155": [
+"TREBLE_DECREMENT",
+"Treble Decrement"
+],
+"0160": [
+"SPEAKER_SYSTEM",
+"Speaker System"
+],
+"0161": [
+"CHANNEL_LEFT",
+"Channel Left"
+],
+"0162": [
+"CHANNEL_RIGHT",
+"Channel Right"
+],
+"0163": [
+"CHANNEL_CENTER",
+"Channel Center"
+],
+"0164": [
+"CHANNEL_FRONT",
+"Channel Front"
+],
+"0165": [
+"CHANNEL_CENTER_FRONT",
+"Channel Center Front"
+],
+"0166": [
+"CHANNEL_SIDE",
+"Channel Side"
+],
+"0167": [
+"CHANNEL_SURROUND",
+"Channel Surround"
+],
+"0168": [
+"CHANNEL_LOW_FREQUENCY",
+"Channel Low Frequency"
+],
+"0169": [
+"CHANNEL_TOP",
+"Channel Top"
+],
+"016a": [
+"CHANNEL_UNKNOWN",
+"Channel Unknown"
+],
+"0170": [
+"SUB_CHANNEL",
+"Sub Channel"
+],
+"0171": [
+"SUB_CHANNEL_INCREMENT",
+"Sub Channel Increment"
+],
+"0172": [
+"SUB_CHANNEL_DECREMENT",
+"Sub Channel Decrement"
+],
+"0173": [
+"ALTERNATE_AUDIO_INCREMENT",
+"Alternate Audio Increment"
+],
+"0174": [
+"ALTERNATE_AUDIO_DECREMENT",
+"Alternate Audio Decrement"
+],
+"0180": [
+"APPLICATION_LAUNCH_BUTTONS",
+"Application Launch Buttons"
+],
+"0181": [
+"AL_LAUNCH_BUTTON_CONFIGURATION",
+"AL Launch Button Configuration"
+],
+"0182": [
+"AL_PROGRAMMABLE_BUTTON",
+"AL Programmable Button"
+],
+"0183": [
+"AL_CONSUMER_CONTROL_CONFIGURATION",
+"AL Consumer Control Configuration"
+],
+"0184": [
+"AL_WORD_PROCESSOR",
+"AL Word Processor"
+],
+"0185": [
+"AL_TEXT_EDITOR",
+"AL Text Editor"
+],
+"0186": [
+"AL_SPREADSHEET",
+"AL Spreadsheet"
+],
+"0187": [
+"AL_GRAPHICS_EDITOR",
+"AL Graphics Editor"
+],
+"0188": [
+"AL_PRESENTATION_APP",
+"AL Presentation App"
+],
+"0189": [
+"AL_DATABASE_APP",
+"AL Database App"
+],
+"018a": [
+"AL_EMAIL_READER",
+"AL Email Reader"
+],
+"018b": [
+"AL_NEWSREADER",
+"AL Newsreader"
+],
+"018c": [
+"AL_VOICEMAIL",
+"AL Voicemail"
+],
+"018d": [
+"AL_CONTACTS_ADDRESS_BOOK",
+"AL Contacts Address Book"
+],
+"018e": [
+"AL_CALENDAR_SCHEDULE",
+"AL Calendar Schedule"
+],
+"018f": [
+"AL_TASK_PROJECT_MANAGER",
+"AL Task Project Manager"
+],
+"0190": [
+"AL_LOG_JOURNAL_TIMECARD",
+"AL Log Journal Timecard"
+],
+"0191": [
+"AL_CHECKBOOK_FINANCE",
+"AL Checkbook Finance"
+],
+"0192": [
+"AL_CALCULATOR",
+"AL Calculator"
+],
+"0193": [
+"AL_A_V_CAPTURE_PLAYBACK",
+"AL A V Capture Playback"
+],
+"0194": [
+"AL_LOCAL_MACHINE_BROWSER",
+"AL Local Machine Browser"
+],
+"0195": [
+"AL_LAN_WAN_BROWSER",
+"AL Lan Wan Browser"
+],
+"0196": [
+"AL_INTERNET_BROWSER",
+"AL Internet Browser"
+],
+"0197": [
+"AL_REMOTE_NETWORKING_ISP",
+"AL Remote Networking Isp"
+],
+"0198": [
+"AL_NETWORK_CONFERENCE",
+"AL Network Conference"
+],
+"0199": [
+"AL_NETWORK_CHAT",
+"AL Network Chat"
+],
+"019a": [
+"AL_TELEPHONY_DIALER",
+"AL Telephony Dialer"
+],
+"019b": [
+"AL_LOGON",
+"AL Logon"
+],
+"019c": [
+"AL_LOGOFF",
+"AL Logoff"
+],
+"019d": [
+"AL_LOGON_LOGOFF",
+"AL Logon Logoff"
+],
+"019e": [
+"AL_TERMINAL_LOCK_SCREENSAVER",
+"AL Terminal Lock Screensaver"
+],
+"019f": [
+"AL_CONTROL_PANEL",
+"AL Control Panel"
+],
+"01a0": [
+"AL_COMMAND_LINE_PROCESSOR_RUN",
+"AL Command Line Processor Run"
+],
+"01a1": [
+"AL_PROCESS_TASK_MANAGER",
+"AL Process Task Manager"
+],
+"01a2": [
+"AL_SELECT_TASK_APPLICATION",
+"AL Select Task Application"
+],
+"01a3": [
+"AL_NEXT_TASK_APPLICATION",
+"AL Next Task Application"
+],
+"01a4": [
+"AL_PREVIOUS_TASK_APPLICATION",
+"AL Previous Task Application"
+],
+"01a5": [
+"AL_PREEMPTIVE_HALT",
+"AL Preemptive Halt"
+],
+"01a6": [
+"AL_INTEGRATED_HELP_CENTER",
+"AL Integrated Help Center"
+],
+"01a7": [
+"AL_DOCUMENTS",
+"AL Documents"
+],
+"01a8": [
+"AL_THESAURUS",
+"AL Thesaurus"
+],
+"01a9": [
+"AL_DICTIONARY",
+"AL Dictionary"
+],
+"01aa": [
+"AL_DESKTOP",
+"AL Desktop"
+],
+"01ab": [
+"AL_SPELL_CHECK",
+"AL Spell Check"
+],
+"01ac": [
+"AL_GRAMMAR_CHECK",
+"AL Grammar Check"
+],
+"01ad": [
+"AL_WIRELESS_STATUS",
+"AL Wireless Status"
+],
+"01ae": [
+"AL_KEYBOARD_LAYOUT",
+"AL Keyboard Layout"
+],
+"01af": [
+"AL_VIRUS_PROTECTION",
+"AL Virus Protection"
+],
+"01b0": [
+"AL_ENCRYPTION",
+"AL Encryption"
+],
+"01b1": [
+"AL_SCREEN_SAVER",
+"AL Screen Saver"
+],
+"01b2": [
+"AL_ALARMS",
+"AL Alarms"
+],
+"01b3": [
+"AL_CLOCK",
+"AL Clock"
+],
+"01b4": [
+"AL_FILE_BROWSER",
+"AL File Browser"
+],
+"01b5": [
+"AL_POWER_STATUS",
+"AL Power Status"
+],
+"01b6": [
+"AL_IMAGE_BROWSER",
+"AL Image Browser"
+],
+"01b7": [
+"AL_AUDIO_BROWSER",
+"AL Audio Browser"
+],
+"01b8": [
+"AL_MOVIE_BROWSER",
+"AL Movie Browser"
+],
+"01b9": [
+"AL_DIGITAL_RIGHTS_MANAGER",
+"AL Digital Rights Manager"
+],
+"01ba": [
+"AL_DIGITAL_WALLET",
+"AL Digital Wallet"
+],
+"01bc": [
+"AL_INSTANT_MESSAGING",
+"AL Instant Messaging"
+],
+"01bd": [
+"AL_OEM_FEATURES_TIPS_TUTORIAL",
+"AL Oem Features Tips Tutorial"
+],
+"01be": [
+"AL_OEM_HELP",
+"AL Oem Help"
+],
+"01bf": [
+"AL_ONLINE_COMMUNITY",
+"AL Online Community"
+],
+"01c0": [
+"AL_ENTERTAINMENT_CONTENT",
+"AL Entertainment Content"
+],
+"01c1": [
+"AL_ONLINE_SHOPPING_BROWSER",
+"AL Online Shopping Browser"
+],
+"01c2": [
+"AL_SMARTCARD_INFORMATION_HELP",
+"AL Smartcard Information Help"
+],
+"01c3": [
+"AL_MARKET_MONITOR_FINANCE",
+"AL Market Monitor Finance"
+],
+"01c4": [
+"AL_CUSTOMIZED_CORPORATE_NEWS",
+"AL Customized Corporate News"
+],
+"01c5": [
+"AL_ONLINE_ACTIVITY_BROWSER",
+"AL Online Activity Browser"
+],
+"01c6": [
+"AL_RESEARCH_SEARCH_BROWSER",
+"AL Research Search Browser"
+],
+"01c7": [
+"AL_AUDIO_PLAYER",
+"AL Audio Player"
+],
+"01c8": [
+"AL_MESSAGE_STATUS",
+"AL Message Status"
+],
+"01c9": [
+"AL_CONTACT_SYNC",
+"AL Contact Sync"
+],
+"01ca": [
+"AL_NAVIGATION",
+"AL Navigation"
+],
+"01cb": [
+"AL_CONTEXT_AWARE_DESKTOP_ASSISTANT",
+"AL Context Aware Desktop Assistant"
+],
+"0200": [
+"GENERIC_GUI_APPLICATION",
+"Generic Gui Application"
+],
+"0201": [
+"AC_NEW",
+"AC New"
+],
+"0202": [
+"AC_OPEN",
+"AC Open"
+],
+"0203": [
+"AC_CLOSE",
+"AC Close"
+],
+"0204": [
+"AC_EXIT",
+"AC Exit"
+],
+"0205": [
+"AC_MAXIMIZE",
+"AC Maximize"
+],
+"0206": [
+"AC_MINIMIZE",
+"AC Minimize"
+],
+"0207": [
+"AC_SAVE",
+"AC Save"
+],
+"0208": [
+"AC_PRINT",
+"AC Print"
+],
+"0209": [
+"AC_PROPERTIES",
+"AC Properties"
+],
+"021a": [
+"AC_UNDO",
+"AC Undo"
+],
+"021b": [
+"AC_COPY",
+"AC Copy"
+],
+"021c": [
+"AC_CUT",
+"AC Cut"
+],
+"021d": [
+"AC_PASTE",
+"AC Paste"
+],
+"021e": [
+"AC_SELECT_ALL",
+"AC Select All"
+],
+"021f": [
+"AC_FIND",
+"AC Find"
+],
+"0220": [
+"AC_FIND_AND_REPLACE",
+"AC Find And Replace"
+],
+"0221": [
+"AC_SEARCH",
+"AC Search"
+],
+"0222": [
+"AC_GO_TO",
+"AC Go To"
+],
+"0223": [
+"AC_HOME",
+"AC Home"
+],
+"0224": [
+"AC_BACK",
+"AC Back"
+],
+"0225": [
+"AC_FORWARD",
+"AC Forward"
+],
+"0226": [
+"AC_STOP",
+"AC Stop"
+],
+"0227": [
+"AC_REFRESH",
+"AC Refresh"
+],
+"0228": [
+"AC_PREVIOUS_LINK",
+"AC Previous Link"
+],
+"0229": [
+"AC_NEXT_LINK",
+"AC Next Link"
+],
+"022a": [
+"AC_BOOKMARKS",
+"AC Bookmarks"
+],
+"022b": [
+"AC_HISTORY",
+"AC History"
+],
+"022c": [
+"AC_SUBSCRIPTIONS",
+"AC Subscriptions"
+],
+"022d": [
+"AC_ZOOM_IN",
+"AC Zoom In"
+],
+"022e": [
+"AC_ZOOM_OUT",
+"AC Zoom Out"
+],
+"022f": [
+"AC_ZOOM",
+"AC Zoom"
+],
+"0230": [
+"AC_FULL_SCREEN_VIEW",
+"AC Full Screen View"
+],
+"0231": [
+"AC_NORMAL_VIEW",
+"AC Normal View"
+],
+"0232": [
+"AC_VIEW_TOGGLE",
+"AC View Toggle"
+],
+"0233": [
+"AC_SCROLL_UP",
+"AC Scroll Up"
+],
+"0234": [
+"AC_SCROLL_DOWN",
+"AC Scroll Down"
+],
+"0235": [
+"AC_SCROLL",
+"AC Scroll"
+],
+"0236": [
+"AC_PAN_LEFT",
+"AC Pan Left"
+],
+"0237": [
+"AC_PAN_RIGHT",
+"AC Pan Right"
+],
+"0238": [
+"AC_PAN",
+"AC Pan"
+],
+"0239": [
+"AC_NEW_WINDOW",
+"AC New Window"
+],
+"023a": [
+"AC_TILE_HORIZONTALLY",
+"AC Tile Horizontally"
+],
+"023b": [
+"AC_TILE_VERTICALLY",
+"AC Tile Vertically"
+],
+"023c": [
+"AC_FORMAT",
+"AC Format"
+],
+"023d": [
+"AC_EDIT",
+"AC Edit"
+],
+"023e": [
+"AC_BOLD",
+"AC Bold"
+],
+"023f": [
+"AC_ITALICS",
+"AC Italics"
+],
+"0240": [
+"AC_UNDERLINE",
+"AC Underline"
+],
+"0241": [
+"AC_STRIKETHROUGH",
+"AC Strikethrough"
+],
+"0242": [
+"AC_SUBSCRIPT",
+"AC Subscript"
+],
+"0243": [
+"AC_SUPERSCRIPT",
+"AC Superscript"
+],
+"0244": [
+"AC_ALL_CAPS",
+"AC All Caps"
+],
+"0245": [
+"AC_ROTATE",
+"AC Rotate"
+],
+"0246": [
+"AC_RESIZE",
+"AC Resize"
+],
+"0247": [
+"AC_FLIP_HORIZONTAL",
+"AC Flip Horizontal"
+],
+"0248": [
+"AC_FLIP_VERTICAL",
+"AC Flip Vertical"
+],
+"0249": [
+"AC_MIRROR_HORIZONTAL",
+"AC Mirror Horizontal"
+],
+"024a": [
+"AC_MIRROR_VERTICAL",
+"AC Mirror Vertical"
+],
+"024b": [
+"AC_FONT_SELECT",
+"AC Font Select"
+],
+"024c": [
+"AC_FONT_COLOR",
+"AC Font Color"
+],
+"024d": [
+"AC_FONT_SIZE",
+"AC Font Size"
+],
+"024e": [
+"AC_JUSTIFY_LEFT",
+"AC Justify Left"
+],
+"024f": [
+"AC_JUSTIFY_CENTER_H",
+"AC Justify Center H"
+],
+"0250": [
+"AC_JUSTIFY_RIGHT",
+"AC Justify Right"
+],
+"0251": [
+"AC_JUSTIFY_BLOCK_H",
+"AC Justify Block H"
+],
+"0252": [
+"AC_JUSTIFY_TOP",
+"AC Justify Top"
+],
+"0253": [
+"AC_JUSTIFY_CENTER_V",
+"AC Justify Center V"
+],
+"0254": [
+"AC_JUSTIFY_BOTTOM",
+"AC Justify Bottom"
+],
+"0255": [
+"AC_JUSTIFY_BLOCK_V",
+"AC Justify Block V"
+],
+"0256": [
+"AC_INDENT_DECREASE",
+"AC Indent Decrease"
+],
+"0257": [
+"AC_INDENT_INCREASE",
+"AC Indent Increase"
+],
+"0258": [
+"AC_NUMBERED_LIST",
+"AC Numbered List"
+],
+"0259": [
+"AC_RESTART_NUMBERING",
+"AC Restart Numbering"
+],
+"025a": [
+"AC_BULLETED_LIST",
+"AC Bulleted List"
+],
+"025b": [
+"AC_PROMOTE",
+"AC Promote"
+],
+"025c": [
+"AC_DEMOTE",
+"AC Demote"
+],
+"025d": [
+"AC_YES",
+"AC Yes"
+],
+"025e": [
+"AC_NO",
+"AC No"
+],
+"025f": [
+"AC_CANCEL",
+"AC Cancel"
+],
+"0260": [
+"AC_CATALOG",
+"AC Catalog"
+],
+"0261": [
+"AC_BUY_CHECKOUT",
+"AC Buy Checkout"
+],
+"0262": [
+"AC_ADD_TO_CART",
+"AC Add To Cart"
+],
+"0263": [
+"AC_EXPAND",
+"AC Expand"
+],
+"0264": [
+"AC_EXPAND_ALL",
+"AC Expand All"
+],
+"0265": [
+"AC_COLLAPSE",
+"AC Collapse"
+],
+"0266": [
+"AC_COLLAPSE_ALL",
+"AC Collapse All"
+],
+"0267": [
+"AC_PRINT_PREVIEW",
+"AC Print Preview"
+],
+"0268": [
+"AC_PASTE_SPECIAL",
+"AC Paste Special"
+],
+"0269": [
+"AC_INSERT_MODE",
+"AC Insert Mode"
+],
+"026a": [
+"AC_DELETE",
+"AC Delete"
+],
+"026b": [
+"AC_LOCK",
+"AC Lock"
+],
+"026c": [
+"AC_UNLOCK",
+"AC Unlock"
+],
+"026d": [
+"AC_PROTECT",
+"AC Protect"
+],
+"026e": [
+"AC_UNPROTECT",
+"AC Unprotect"
+],
+"026f": [
+"AC_ATTACH_COMMENT",
+"AC Attach Comment"
+],
+"0270": [
+"AC_DELETE_COMMENT",
+"AC Delete Comment"
+],
+"0271": [
+"AC_VIEW_COMMENT",
+"AC View Comment"
+],
+"0272": [
+"AC_SELECT_WORD",
+"AC Select Word"
+],
+"0273": [
+"AC_SELECT_SENTENCE",
+"AC Select Sentence"
+],
+"0274": [
+"AC_SELECT_PARAGRAPH",
+"AC Select Paragraph"
+],
+"0275": [
+"AC_SELECT_COLUMN",
+"AC Select Column"
+],
+"0276": [
+"AC_SELECT_ROW",
+"AC Select Row"
+],
+"0277": [
+"AC_SELECT_TABLE",
+"AC Select Table"
+],
+"0278": [
+"AC_SELECT_OBJECT",
+"AC Select Object"
+],
+"0279": [
+"AC_REDO_REPEAT",
+"AC Redo Repeat"
+],
+"027a": [
+"AC_SORT",
+"AC Sort"
+],
+"027b": [
+"AC_SORT_ASCENDING",
+"AC Sort Ascending"
+],
+"027c": [
+"AC_SORT_DESCENDING",
+"AC Sort Descending"
+],
+"027d": [
+"AC_FILTER",
+"AC Filter"
+],
+"027e": [
+"AC_SET_CLOCK",
+"AC Set Clock"
+],
+"027f": [
+"AC_VIEW_CLOCK",
+"AC View Clock"
+],
+"0280": [
+"AC_SELECT_TIME_ZONE",
+"AC Select Time Zone"
+],
+"0281": [
+"AC_EDIT_TIME_ZONES",
+"AC Edit Time Zones"
+],
+"0282": [
+"AC_SET_ALARM",
+"AC Set Alarm"
+],
+"0283": [
+"AC_CLEAR_ALARM",
+"AC Clear Alarm"
+],
+"0284": [
+"AC_SNOOZE_ALARM",
+"AC Snooze Alarm"
+],
+"0285": [
+"AC_RESET_ALARM",
+"AC Reset Alarm"
+],
+"0286": [
+"AC_SYNCHRONIZE",
+"AC Synchronize"
+],
+"0287": [
+"AC_SEND_RECEIVE",
+"AC Send Receive"
+],
+"0288": [
+"AC_SEND_TO",
+"AC Send To"
+],
+"0289": [
+"AC_REPLY",
+"AC Reply"
+],
+"028a": [
+"AC_REPLY_ALL",
+"AC Reply All"
+],
+"028b": [
+"AC_FORWARD_MSG",
+"AC Forward Msg"
+],
+"028c": [
+"AC_SEND",
+"AC Send"
+],
+"028d": [
+"AC_ATTACH_FILE",
+"AC Attach File"
+],
+"028e": [
+"AC_UPLOAD",
+"AC Upload"
+],
+"028f": [
+"AC_DOWNLOAD_SAVE_TARGET_AS",
+"AC Download Save Target As"
+],
+"0290": [
+"AC_SET_BORDERS",
+"AC Set Borders"
+],
+"0291": [
+"AC_INSERT_ROW",
+"AC Insert Row"
+],
+"0292": [
+"AC_INSERT_COLUMN",
+"AC Insert Column"
+],
+"0293": [
+"AC_INSERT_FILE",
+"AC Insert File"
+],
+"0294": [
+"AC_INSERT_PICTURE",
+"AC Insert Picture"
+],
+"0295": [
+"AC_INSERT_OBJECT",
+"AC Insert Object"
+],
+"0296": [
+"AC_INSERT_SYMBOL",
+"AC Insert Symbol"
+],
+"0297": [
+"AC_SAVE_AND_CLOSE",
+"AC Save And Close"
+],
+"0298": [
+"AC_RENAME",
+"AC Rename"
+],
+"0299": [
+"AC_MERGE",
+"AC Merge"
+],
+"029a": [
+"AC_SPLIT",
+"AC Split"
+],
+"029b": [
+"AC_DISRIBUTE_HORIZONTALLY",
+"AC Disribute Horizontally"
+],
+"029c": [
+"AC_DISTRIBUTE_VERTICALLY",
+"AC Distribute Vertically"
+],
+"029d": [
+"AC_NEXT_KEYBOARD_LAYOUT_SELECT",
+"AC Next Keyboard Layout Select"
+],
+"029e": [
+"AC_NAVIGATION_GUIDANCE",
+"AC Navigation Guidance"
+],
+"029f": [
+"AC_DESKTOP_SHOW_ALL_WINDOWS",
+"AC Desktop Show All Windows"
+],
+"02a0": [
+"AC_SOFT_KEY_LEFT",
+"AC Soft Key Left"
+],
+"02a1": [
+"AC_SOFT_KEY_RIGHT",
+"AC Soft Key Right"
+],
+"02a2": [
+"AC_DESKTOP_SHOW_ALL_APPLICATIONS",
+"AC Desktop Show All Applications"
+],
+"02b0": [
+"AC_IDLE_KEEP_ALIVE",
+"AC Idle Keep Alive"
+],
+"02c0": [
+"EXTENDED_KEYBOARD_ATTRIBUTES_COLLECTION",
+"Extended Keyboard Attributes Collection"
+],
+"02c1": [
+"KEYBOARD_FORM_FACTOR",
+"Keyboard Form Factor"
+],
+"02c2": [
+"KEYBOARD_KEY_TYPE",
+"Keyboard Key Type"
+],
+"02c3": [
+"KEYBOARD_PHYSICAL_LAYOUT",
+"Keyboard Physical Layout"
+],
+"02c4": [
+"VENDOR_SPECIFIC_KEYBOARD_PHYSICAL_LAYOUT",
+"Vendor Specific Keyboard Physical Layout"
+],
+"02c5": [
+"KEYBOARD_IETF_LANGUAGE_TAG_INDEX",
+"Keyboard Ietf Language Tag Index"
+],
+"02c6": [
+"IMPLEMENTED_KEYBOARD_INPUT_ASSIST_CONTROLS",
+"Implemented Keyboard Input Assist Controls"
+],
+"02c7": [
+"KEYBOARD_INPUT_ASSIST_PREVIOUS",
+"Keyboard Input Assist Previous"
+],
+"02c8": [
+"KEYBOARD_INPUT_ASSIST_NEXT",
+"Keyboard Input Assist Next"
+],
+"02c9": [
+"KEYBOARD_INPUT_ASSIST_PREVIOUS_GROUP",
+"Keyboard Input Assist Previous Group"
+],
+"02ca": [
+"KEYBOARD_INPUT_ASSIST_NEXT_GROUP",
+"Keyboard Input Assist Next Group"
+],
+"02cb": [
+"KEYBOARD_INPUT_ASSIST_ACCEPT",
+"Keyboard Input Assist Accept"
+],
+"02cc": [
+"KEYBOARD_INPUT_ASSIST_CANCEL",
+"Keyboard Input Assist Cancel"
+],
+"02d0": [
+"PRIVACY_SCREEN_TOGGLE",
+"Privacy Screen Toggle"
+],
+"02d1": [
+"PRIVACY_SCREEN_LEVEL_DECREMENT",
+"Privacy Screen Level Decrement"
+],
+"02d2": [
+"PRIVACY_SCREEN_LEVEL_INCREMENT",
+"Privacy Screen Level Increment"
+],
+"02d3": [
+"PRIVACY_SCREEN_LEVEL_MINIMUM",
+"Privacy Screen Level Minimum"
+],
+"02d4": [
+"PRIVACY_SCREEN_LEVEL_MAXIMUM",
+"Privacy Screen Level Maximum"
+],
+"0500": [
+"CONTACT_EDITED",
+"Contact Edited"
+],
+"0501": [
+"CONTACT_ADDED",
+"Contact Added"
+],
+"0502": [
+"CONTACT_RECORD_ACTIVE",
+"Contact Record Active"
+],
+"0503": [
+"CONTACT_INDEX",
+"Contact Index"
+],
+"0504": [
+"CONTACT_NICKNAME",
+"Contact Nickname"
+],
+"0505": [
+"CONTACT_FIRST_NAME",
+"Contact First Name"
+],
+"0506": [
+"CONTACT_LAST_NAME",
+"Contact Last Name"
+],
+"0507": [
+"CONTACT_FULL_NAME",
+"Contact Full Name"
+],
+"0508": [
+"CONTACT_PHONE_NUMBER_PERSONAL",
+"Contact Phone Number Personal"
+],
+"0509": [
+"CONTACT_PHONE_NUMBER_BUSINESS",
+"Contact Phone Number Business"
+],
+"050a": [
+"CONTACT_PHONE_NUMBER_MOBILE",
+"Contact Phone Number Mobile"
+],
+"050b": [
+"CONTACT_PHONE_NUMBER_PAGER",
+"Contact Phone Number Pager"
+],
+"050c": [
+"CONTACT_PHONE_NUMBER_FAX",
+"Contact Phone Number Fax"
+],
+"050d": [
+"CONTACT_PHONE_NUMBER_OTHER",
+"Contact Phone Number Other"
+],
+"050e": [
+"CONTACT_EMAIL_PERSONAL",
+"Contact Email Personal"
+],
+"050f": [
+"CONTACT_EMAIL_BUSINESS",
+"Contact Email Business"
+],
+"0510": [
+"CONTACT_EMAIL_OTHER",
+"Contact Email Other"
+],
+"0511": [
+"CONTACT_EMAIL_MAIN",
+"Contact Email Main"
+],
+"0512": [
+"CONTACT_SPEED_DIAL_NUMBER",
+"Contact Speed Dial Number"
+],
+"0513": [
+"CONTACT_STATUS_FLAG",
+"Contact Status Flag"
+],
+"0514": [
+"CONTACT_MISC",
+"Contact Misc"
+],
+"0515": [
+"KEYBOARD_BRIGHTNESS_NEXT",
+"Keyboard Brightness Next"
+],
+"0516": [
+"KEYBOARD_BRIGHTNESS_PREVIOUS",
+"Keyboard Brightness Previous"
+],
+"0517": [
+"KEYBOARD_BACKLIGHT_LEVEL_SUGGESTION",
+"Keyboard Backlight Level Suggestion"
+]
+}
