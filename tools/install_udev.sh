@@ -23,6 +23,7 @@ if [ "$1" = "remove" ]; then
     rm -f "$dst"
     udevadm control --reload-rules
     udevadm trigger --subsystem-match=hidraw
+    udevadm trigger --subsystem-match=usb
     echo "removed $dst"
     exit 0
 fi
@@ -35,6 +36,7 @@ fi
 install -m 0644 "$src" "$dst"
 udevadm control --reload-rules
 udevadm trigger --subsystem-match=hidraw
+udevadm trigger --subsystem-match=usb
 echo "installed $dst"
 echo "replug the keyboard, then check:"
 echo "  python3 tools/k815ctl.py list"

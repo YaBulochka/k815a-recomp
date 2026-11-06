@@ -13,7 +13,25 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+.venv/
+venv/
 
-# OS
+# Node
+node_modules/
+
+# build / logs / temp
+*.log
+*.tmp
+*.bak
+*.swp
+
+# OS / editors
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/
+
+# Agents
+
+opencode.json
+AGENTS.md

@@ -53,7 +53,7 @@ check_js() {
 }
 
 # --- static checks ---------------------------------------------------------- #
-run "python syntax (tools/*.py)" python3 -m py_compile tools/*.py
+run "python syntax (tools/*.py)" python3 -m py_compile tools/*.py tests/*.py
 run "shell syntax (tools/*.sh)"  check_shell
 if have node; then
     run "js syntax (webhid/*.js)" check_js
@@ -75,7 +75,7 @@ if [ "$FULL" = 1 ]; then
     missing=""
     have chromium || have chromium-browser || missing="chromium"
     have xdotool || missing="${missing:+$missing, }xdotool"
-    [ -e /tmp/.X11-unix/X99 ] || missing="${missing:+$missing, }:99 (Xvfb)"
+    have Xvfb || missing="${missing:+$missing, }Xvfb"
     if [ -z "$missing" ]; then
         run "end-to-end WebHID (Chromium -> hidraw -> uhid)" \
             python3 tools/e2e_webhid.py

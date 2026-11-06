@@ -98,7 +98,57 @@ xkbcli compile-keymap --rules evdev --layout us --model pc86 \
 After that `xmodmap -pke | grep 191` should print `F13`, and KDE can bind
 F13–F24 in the usual way.
 
-## 5. Tool
+## 5. Working mapping on this unit
+
+Verified on the K815 with `presets/k815-f13-20-encoder.json`:
+
+| control | HID usage | notes |
+|---------|-----------|-------|
+| keys 1..8 | `F13..F20` (`0x68..0x6F`) | plain F-keys |
+| encoder left | Keypad `-` (`0x56`) | single-key macro record |
+| encoder right | Keypad `+` (`0x57`) | single-key macro record |
+| encoder press | `F21` (`0x70`) | keymap slot 49 |
+
+The rotation keymap slots 41/49 are **not** used by rotation on this firmware:
+slot 49 is the press, and slot 41 does nothing. Rotation can only send an
+ordinary key through a macro record in the function table:
+
+```
+enc0: 01 00 86 56 06 56 00 00 00 00 00 00 00 00 00 00
+enc1: 01 00 86 57 06 57 00 00 00 00 00 00 00 00 00 00
+```
+
+The media mode byte is `0x44` (first number 11); the records contain no
+Consumer usage, so no media function fires.
+
+At the device's 100 Hz endpoint interval (`bInterval = 10 ms`) a quick spin can
+lose detents: the down/up pair has no delay and a HID report is a state
+snapshot, not an event queue. Media functions may be more reliable. There is no
+scan-rate or hold-time setting in the firmware. See
+`docs/KNOWN-LIMITATIONS.md`.
+
+The WebHID page exposes the same thing: `Encoder → Rotation sends` switches
+between media functions and keyboard keys, with one key selector per direction
+and a separate selector for the press (slot 49).
+
+KDE shortcuts registered through `org.kde.kglobalaccel`:
+
+| action | key |
+|--------|-----|
+| `systemsettings.desktop` `_launch` | `F13` (`Qt::Key_F13 = 16777276`) |
+| `net.local.global-mute.sh.desktop` `_launch` | `F20` (`16777283`) |
+
+The xkb override must be active for these to arrive as plain F13/F20. After
+installing it, log out and back in (switching the layout in the running session
+did not rebuild KWin's keymap here). Check with:
+
+```sh
+xkbcli compile-keymap --rules evdev --layout us --model pc86 \
+    --include ~/.config/xkb --include-defaults \
+  | grep -E 'key <FK13>|key <FK20>|key <FK21>'
+```
+
+## 6. Tool
 
 `tools/k815ctl.py keymap --keymap <file>` accepts an 8×20 matrix
 (`KBconfig.ini`, the form `col_row=value`, decimal, as in that file) or 160

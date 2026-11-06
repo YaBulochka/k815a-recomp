@@ -12,30 +12,36 @@ session.  Covered here:
   * a WebHID-style JSON export (the file the browser page writes) applies
     exactly like the equivalent native CLI edits — this pins the
     "export from the page, apply with k815ctl" round trip;
-  * a backup artifact restores its stream and rejects a tampered file.
+  * a backup artifact restores its stream and rejects a tampered file;
+  * a device dump (page JSON or raw binary) decodes into the same preset,
+    rejecting a bad sha256 or a gap;
+  * the 22-entry function table and the five factory macro records.
 
     python3 tools/selftest_cli.py [capture.jsonl]
 """
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import re
 import sys
 import tempfile
+import types
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import k815_proto as P          # noqa: E402
 import k815ctl as C             # noqa: E402
+import fixtures                 # noqa: E402
 
 # Single source of truth for the expected patch values: the same constants the
 # WebHID selftest hands to webhid/k815.js.
 from selftest_webhid import (TEST_ENC, TEST_ENC_BYTES, TEST_LED, TEST_SW,  # noqa: E402
                              TEST_SW_BYTE)
 
-DEFAULT_CAPTURE = os.path.join(ROOT, "captures/baseline_apply.jsonl")
+DEFAULT_CAPTURE = fixtures.capture()
 
 results = []
 
@@ -64,7 +70,7 @@ def main():
     check("emit(program_from_capture) == capture", ok,
           f"{got}/{want}" + (f", first bad {bad}" if bad is not None else ""))
 
-    prog, _ = P.program_from_capture(capture)
+    prog, mem = P.program_from_capture(capture)
     baseline = P.emit(prog)
     same_phases = (P.read_keymap(prog, "A")
                    == P.read_keymap(prog, "B", P.KEYMAP_BASE_B))
@@ -108,6 +114,22 @@ def main():
     check("unknown encoder numbers are skipped",
           P.patch_encoder(p5, {"enc0": -1, "enc1": 99}) == 0
           and P.emit(p5) == baseline)
+
+    # rotation can send a keyboard key only as a single-key macro record
+    p5m, _ = P.program_from_capture(capture)
+    P.patch_encoder_macro(p5m, {"enc0": 0x56, "enc1": 0x57})
+    check("encoder macro records are written",
+          P.encoder_macro_record(0x56)[:6].hex() == "010086560656")
+    check("read_encoder_macro finds the usages",
+          [P.read_encoder_macro(p5m, "enc0"),
+           P.read_encoder_macro(p5m, "enc1")] == [0x56, 0x57])
+    enc_preset = P.preset_from_program(p5m)
+    check("preset exports encoderKeys",
+          enc_preset.get("encoderKeys") == {"enc0": 0x56, "enc1": 0x57})
+    p5r, _ = P.program_from_capture(capture)
+    P.apply_preset(p5r, {"encoderKeys": {"enc0": 0x56, "enc1": 0x57}})
+    check("encoderKeys applies back to the same stream",
+          P.emit(p5r) == P.emit(p5m))
 
     # 4. preset: export -> apply must be a no-op on the captured template
     preset = P.preset_from_program(prog, capture)
@@ -179,7 +201,7 @@ def main():
             check("short frame is rejected", True)
 
     # 6. the KBconfig.ini loader agrees with the captured keymap
-    km = C.load_keymap(os.path.join(ROOT, "extracted/app/config/KBconfig.ini"))
+    km = C.load_keymap(fixtures.kbconfig())
     check("KBconfig.ini keymap is 160 bytes", len(km) == 160)
     check("KBconfig.ini keymap matches the template phase A",
           bytes(km) == P.read_keymap(prog, "A"))
@@ -232,6 +254,135 @@ def main():
     check("every catalogued mode has an in_ui_list flag",
           bool(m) and all(isinstance(e.get("in_ui_list"), bool)
                           for e in json.loads(m.group(1))))
+
+    # 9. a device dump decodes back into the same preset
+    dump_record = P.make_dump(0, mem)
+    with tempfile.TemporaryDirectory() as td:
+        json_path = os.path.join(td, "dump.json")
+        raw_path = os.path.join(td, "dump.bin")
+        C.write_json(json_path, dump_record)
+        open(raw_path, "wb").write(bytes(mem))
+
+        image, addr, rec = P.read_dump(json_path)
+        check("dump JSON round-trips the memory image",
+              image == bytes(mem) and addr == 0, f"{len(image)} bytes")
+        check("dump sha256 covers the image",
+              rec.get("sha256") == hashlib.sha256(bytes(mem)).hexdigest())
+
+        dump_preset = P.preset_from_image(image, addr, os.path.basename(capture))
+        check("dump preset == template preset", dump_preset == preset)
+        check("dump keymap comes from the phase-B copy",
+              dump_preset["keymap"] == list(P.read_keymap(prog, "B", P.KEYMAP_BASE_B)))
+
+        raw_image, raw_addr, _ = P.read_dump(raw_path)
+        check("raw dump reads with base 0",
+              raw_image == bytes(mem) and raw_addr == 0)
+        try:
+            P.preset_from_image(image[:100])
+            check("a short dump is rejected", False)
+        except ValueError:
+            check("a short dump is rejected", True)
+
+        backup_path = os.path.join(td, "backup.json")
+        C.write_json(backup_path, {
+            "kind": "k815-frames",
+            "deviceMemory": {"base": 0, "length": len(mem),
+                             "hex": bytes(mem).hex()},
+        })
+        backup_image, backup_addr, _ = P.read_dump(backup_path)
+        check("backup --from-device memory decodes as a dump",
+              backup_image == bytes(mem) and backup_addr == 0)
+
+        bad = copy.deepcopy(dump_record)
+        bad["sha256"] = "00" * 32
+        C.write_json(json_path, bad)
+        try:
+            P.read_dump(json_path)
+            check("a dump with a bad sha256 is rejected", False)
+        except ValueError:
+            check("a dump with a bad sha256 is rejected", True)
+
+        gap = copy.deepcopy(dump_record)
+        gap["sha256"] = ""
+        gap["memory"].pop("0x0010")
+        C.write_json(json_path, gap)
+        try:
+            P.read_dump(json_path)
+            check("a dump with a gap is rejected", False)
+        except ValueError:
+            check("a dump with a gap is rejected", True)
+
+        C.write_json(json_path, dump_record)
+        out = os.path.join(td, "preset.json")
+        C.cmd_preset(types.SimpleNamespace(from_dump=json_path, base=None,
+                                           out=out, template=capture))
+        check("CLI --from-dump writes the same preset",
+              json.load(open(out)) == P.preset_from_image(bytes(mem), 0))
+
+    # 10. the 22-entry function table and the macro records
+    table = P.read_function_table(prog)
+    check("function table has 22 entries",
+          len(table) == P.FUNCTION_TABLE_ENTRIES)
+    check("every entry carries the constant tag 0x07",
+          all(e["tag"] == P.FUNCTION_ENTRY_TAG for e in table))
+    check("the table is followed by a zero separator",
+          prog.get("B", P.FUNCTION_TABLE_SEPARATOR) == 0x00)
+    check("baseline: only the two encoder entries are active",
+          [e["index"] for e in table if e["kind"]] == [20, 21])
+    check("baseline: encoder records at 0x168 and 0x178",
+          [e["address"] for e in table if e["kind"]] == [0x168, 0x0178])
+
+    macro_prog, _ = P.program_from_capture(fixtures.macro_capture())
+    mtable = P.read_function_table(macro_prog)
+    mactive = [e for e in mtable if e["kind"]]
+    check("macro capture: keys 1..5 activate slots 10..14",
+          [e["index"] for e in mactive] == [10, 11, 12, 13, 14, 20, 21])
+    check("macro capture: records are packed from 0x168",
+          [e["address"] for e in mactive] ==
+          [0x168, 0x178, 0x188, 0x198, 0x1A8, 0x1B8, 0x1C8])
+    mkm = P.read_keymap(macro_prog, "A")
+    check("macro keymap markers follow the key slot",
+          [mkm[s] for s in (8, 16, 24, 32, 9)] ==
+          [0xAF, 0xB8, 0xB9, 0xBA, 0xBB])
+    cut_copy = [P.read_function_record(macro_prog, a).hex(" ")
+                for a in (0x168, 0x178)]
+    check("Cut and Copy records encode different shortcuts",
+          cut_copy == [
+              "01 00 86 e0 86 1b 06 e0 06 1b 00 00 00 00 00 00",
+              "01 00 86 e0 86 06 06 e0 06 06 00 00 00 00 00 00",
+          ])
+    check("the five factory macros have distinct records",
+          len({P.read_function_record(macro_prog, a)
+               for a in (0x168, 0x178, 0x188, 0x198, 0x1A8)}) == 5)
+
+    # The firmware occasionally answered a memory read with a byte from another
+    # address (one palette block and keymap slot 49 were once read back wrong).
+    # The readers repeat a byte until two answers agree; this is the voting.
+    class FakeReadDev:
+        """Answers every read from a scripted list, one value per GET."""
+
+        def __init__(self, values):
+            self.values = list(values)
+            self.gets = 0
+
+        def send_feature_report(self, data):
+            return len(data)
+
+        def get_feature_report(self, report_id, size):
+            v = self.values[self.gets % len(self.values)]
+            self.gets += 1
+            return bytes([0x07, v]) + bytes(size - 2)
+
+    check("pick_stable: the majority wins",
+          C.pick_stable([0x54, 0x70, 0x70]) == 0x70)
+    check("pick_stable: a tie keeps the latest sample",
+          C.pick_stable([0x54, 0x70]) == 0x70)
+    fake = FakeReadDev([0x70, 0x70])
+    check("verified read: two matching answers are accepted",
+          C.read_byte_verified(fake, 0x0159) == 0x70 and fake.gets == 2)
+    fake = FakeReadDev([0x54, 0x70, 0x70])
+    check("verified read: a wrong answer is re-read until it agrees",
+          C.read_byte_verified(fake, 0x0159) == 0x70 and fake.gets == 3)
 
     ok = all(results)
     print(f"CLI SELFTEST {'PASS' if ok else 'FAIL'} "

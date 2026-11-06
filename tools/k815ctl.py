@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """Configure the MKESPN K815 macro keyboard from Linux.
 
-The device speaks a vendor HID protocol over 16-byte feature reports with
-report ID 7 (see tools/k815_proto.py for the frame layout).  This tool can:
+The device speaks a vendor HID protocol over feature reports with report ID 7.
+Frames are 16 bytes internally, but a real K815 accepts/expects 8 bytes on the
+wire (ID + 7 payload); see tools/k815_proto.py for the layout and `--wire-len`.  This tool can:
 
   list        enumerate matching devices
   info        perform the startup "device info" read the app does
-  dump        read bytes from device memory (sub=0x05 + get_feature)
+  dump        read bytes from device memory (sub=0x05 + get_feature);
+              --json saves a page-compatible dump, --preset decodes one
   replay      send a captured upload session to the device
   keymap      build a full upload from a KBconfig.ini-style 8x20 matrix and
               send it (this is the end goal for keyboard configuration)
   led         show/change the LED palette and effect of the template session
   switches    show/change the four option switches (phase-B byte 0x0001)
   encoder     show/change the encoder media functions (USCROLL0/USCROLL1)
-  preset      export the whole state of a template as a JSON preset
+  preset      export the whole state of a template as a JSON preset, or
+              decode a device dump with --from-dump
   apply       patch a JSON preset into a template and send it
   show        print the keymap, LED, switches and encoder of a captured session
   backup      write a rollback artifact (the exact frame stream + a preset)
@@ -29,6 +32,8 @@ Usage examples:
     python3 tools/k815ctl.py list
     python3 tools/k815ctl.py replay captures/baseline_apply.jsonl --dry-run
     python3 tools/k815ctl.py preset --out my.json
+    python3 tools/k815ctl.py dump --json dump.json --preset current.json
+    python3 tools/k815ctl.py preset --from-dump k815-memory-*.json --out current.json
     python3 tools/k815ctl.py apply my.json --dry-run
     python3 tools/k815ctl.py switches --set altF4=0 --dry-run
     python3 tools/k815ctl.py encoder --list
@@ -88,24 +93,64 @@ def open_device(vid, pid, usage_page=None, path=None):
     return dev, cand[0]
 
 
-def send_report(dev, raw: bytes):
-    """Send one 16-byte protocol report as a feature report."""
-    if len(raw) != P.REPORT_LEN:
-        raw = raw.ljust(P.REPORT_LEN, b"\0")
+def send_report(dev, raw: bytes, wire_len=P.WIRE_REPORT_LEN):
+    """Send one protocol report as a feature report.
+
+    The device's HID descriptor declares report 7 with seven payload bytes, so
+    the wire frame is 8 bytes; the internal 16-byte frame is truncated (see
+    `k815_proto.wire`).  Pass ``wire_len=16`` for the 16-byte uhid emulator.
+    """
+    raw = P.wire(raw, wire_len)
     return dev.send_feature_report(bytes(raw))
 
 
-def get_report(dev, report_id=P.REPORT_ID, size=P.REPORT_LEN):
+def get_report(dev, report_id=P.REPORT_ID, size=P.READ_ANSWER_LEN):
     return bytes(dev.get_feature_report(report_id, size))
 
 
-def send_frames(args, frames) -> int:
-    """Open the device and send a list of 16-byte frames, honouring --pace."""
+def host_handshake(dev, wire_len=P.WIRE_REPORT_LEN):
+    """The startup INIT + COMMIT the vendor application sends after opening."""
+    send_report(dev, P.report(P.OP_MEM, P.SUB_INIT), wire_len)
+    send_report(dev, P.report(P.OP_MEM, P.SUB_IDLE), wire_len)
+
+
+def read_byte(dev, addr, wire_len=P.WIRE_REPORT_LEN, wait=0.001):
+    """Read one byte: load the address, GET_FEATURE, then close the read.
+
+    This mirrors the application exactly (`SUB_READ`, a short sleep, the GET,
+    then `SUB_COMMIT`).  Without the closing commit the firmware answers the
+    next request with `0xb4` instead of memory.
+    """
+    if send_report(dev, P.report(P.OP_MEM, P.SUB_READ, 0, addr), wire_len) < 0:
+        raise SystemExit("send_feature_report failed (is a kernel driver bound?)")
+    if wait:
+        time.sleep(wait)
+    ans = get_report(dev)
+    send_report(dev, P.report(P.OP_MEM, P.SUB_COMMIT), wire_len)
+    return ans[1] if len(ans) > 1 else 0
+
+
+def send_frames(args, frames, capture=None) -> int:
+    """Open the device and send a list of 16-byte frames.
+
+    The measured pauses of the captured session are reproduced by default
+    (`--no-delays` turns them off): the firmware needs them, especially the
+    200 ms gap after the session start.  ``--pace`` adds a fixed delay after
+    every frame on top of that.
+    """
+    delays = {}
+    if capture and not getattr(args, "no_delays", False):
+        delays = {i: ms / 1000.0 for i, ms in P.capture_delays(capture, frames)}
+        if delays:
+            print(f"using {len(delays)} measured frame delays from "
+                  f"{os.path.basename(capture)}")
     dev, info = open_device(args.vid, args.pid, usage_page=args.usage_page,
                             path=args.device)
     print(f"-> {info['path'].decode()}")
     for i, f in enumerate(frames):
-        if send_report(dev, f) < 0:
+        if i in delays:
+            time.sleep(delays[i])
+        if send_report(dev, f, getattr(args, "wire_len", P.WIRE_REPORT_LEN)) < 0:
             raise SystemExit(f"send failed at frame {i}")
         if args.pace:
             time.sleep(args.pace)
@@ -113,22 +158,124 @@ def send_frames(args, frames) -> int:
     return 0
 
 
-def dump_range(dev, addr: int, length: int, pace: float = 0.0) -> bytes:
-    """Read `length` bytes from device memory one byte at a time."""
+def pick_stable(values) -> int:
+    """The value seen most often; ties go to the latest sample."""
+    if not values:
+        return 0xff
+    counts = {}
+    for v in values:
+        counts[v] = counts.get(v, 0) + 1
+    best, best_n = values[-1], 0
+    for v, n in counts.items():
+        if n >= best_n:
+            best, best_n = v, n
+    return best
+
+
+def read_byte_verified(dev, addr, wire_len=P.WIRE_REPORT_LEN, tries: int = 5) -> int:
+    """Read one byte, repeating it until two answers agree.
+
+    The firmware occasionally answers a memory read with a byte that belongs
+    to another address: a whole palette block and keymap slot 49 were once read
+    back wrong right after a write.  A second read costs one extra transfer, so
+    two matching answers are accepted, and a disagreeing byte is sampled up to
+    `tries` times (majority wins).
+    """
+    seen = [read_byte(dev, addr, wire_len), read_byte(dev, addr, wire_len)]
+    if seen[0] == seen[1]:
+        return seen[0]
+    print(f"read 0x{addr:04X} was unstable ({', '.join(f'0x{v:02X}' for v in seen)}), retrying")
+    while len(seen) < tries:
+        seen.append(read_byte(dev, addr, wire_len))
+        value = pick_stable(seen)
+        if seen.count(value) >= 2:
+            return value
+    return pick_stable(seen)
+
+
+def dump_range(dev, addr: int, length: int, pace: float = 0.0,
+               wire_len=P.WIRE_REPORT_LEN, warmup: int = 2,
+               verify: bool = True) -> bytes:
+    """Read `length` bytes from device memory one byte at a time.
+
+    The first reads after a handshake return a stale buffer, so two warm-up
+    reads are discarded before the real range starts.  Every byte is read twice
+    and the answers must agree (see `read_byte_verified`); pass ``verify=False``
+    to accept a single read per byte, which halves the time on a large dump.
+    """
+    host_handshake(dev, wire_len)
+    for _ in range(warmup):
+        read_byte(dev, addr, wire_len)
+        if pace:
+            time.sleep(pace)
     out = bytearray()
+    read = read_byte_verified if verify else read_byte
     for a in range(addr, addr + length):
-        if send_report(dev, P.report(P.OP_MEM, P.SUB_READ, 0, a, 0, 0)) < 0:
-            raise SystemExit("send_feature_report failed (is a kernel driver bound?)")
-        ans = get_report(dev)
-        out.append(ans[1] if len(ans) > 1 else 0)
+        out.append(read(dev, a, wire_len))
         if pace:
             time.sleep(pace)
     return bytes(out)
 
 
-def load_template(args):
-    """Parse the template capture given by --template."""
-    prog, _ = P.program_from_capture(args.template)
+BASELINE_TEMPLATE = "captures/baseline_apply.jsonl"
+# Captured real-device sessions, keyed by the config base the device reports.
+# 0x0118 is the original K815 layout; 0x00E0 is the layout the chip burning
+# tool writes (it rewrites the base and the header pointers).
+HW_TEMPLATES = {
+    0x0118: ("tests/fixtures/hw_apply.jsonl.gz",
+             "captures/hw_apply_20261104.jsonl"),
+    0x00E0: ("tests/fixtures/hw_apply_e0.jsonl.gz",
+             "captures/hw_apply_e0_20261104.jsonl"),
+}
+
+
+def hardware_template(base):
+    """The captured real-device session for this config base, if present."""
+    for path in HW_TEMPLATES.get(base, ()):
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def device_config_base(args):
+    """Read the phase-B config base from the device's startup answer."""
+    dev, _info = open_device(args.vid, args.pid, usage_page=args.usage_page,
+                             path=args.device)
+    host_handshake(dev, getattr(args, "wire_len", P.WIRE_REPORT_LEN))
+    ans = get_report(dev)
+    if len(ans) < 16:
+        return 0
+    return ans[14] | (ans[15] << 8)
+
+
+def load_template(args, probe=False):
+    """Parse the template capture, optionally picking the hardware one.
+
+    The emulator's fake device reports config base 0x0001 and needs the
+    baseline capture.  A real K815 reports 0x0118 and the phase-B addresses
+    are shifted; the committed hardware fixture has those exact addresses.
+    """
+    path = getattr(args, "template", None)
+    if not path or path == "auto":
+        path = BASELINE_TEMPLATE
+        if probe:
+            try:
+                base = device_config_base(args)
+            except SystemExit:
+                base = 0
+            if base and base != 0x0001:
+                hw = hardware_template(base)
+                if not hw:
+                    raise SystemExit(
+                        f"this device reports config base 0x{base:04X}, but no "
+                        "hardware template is available; capture one from the "
+                        "vendor application (`tools/app_capture.sh`) or pass "
+                        "--template explicitly")
+                path = hw
+    if probe:
+        print(f"template: {path}", file=sys.stderr)
+    args._template_path = path
+    prog, _ = P.program_from_capture(path)
     return prog
 
 
@@ -138,7 +285,7 @@ def finish(args, prog, label="patch") -> int:
     if getattr(args, "dry_run", False):
         print(f"{label}: {len(frames)} frames (dry run)")
         return 0
-    return send_frames(args, frames)
+    return send_frames(args, frames, getattr(args, "_template_path", None))
 
 
 # --------------------------------------------------------------------------- #
@@ -222,6 +369,7 @@ def cmd_list(args):
 def cmd_info(args):
     dev, info = open_device(args.vid, args.pid, usage_page=args.usage_page,
                             path=args.device)
+    host_handshake(dev, args.wire_len)
     ans = get_report(dev)
     print(f"device: {info['path'].decode()} usage_page={info.get('usage_page'):#06x}")
     print(f"info answer: {ans.hex()}")
@@ -234,14 +382,51 @@ def cmd_dump(args):
     The protocol loads a read address with a normal memory frame (sub=0x05)
     and then the host issues a HID GET_FEATURE; the answer byte arrives in
     byte 1 of the report.  We read one byte per iteration.
+
+    --json writes the same record the WebHID page saves, --preset decodes the
+    read image into a preset (the image must cover 0x0000..0x018F for that).
     """
+    length = args.length
+    config_base = getattr(args, "config_base", None)
+    record_base = getattr(args, "record_base", None)
+    cb_for_decode = config_base if config_base is not None else 0x0001
+    rb_for_decode = (record_base if record_base is not None
+                     else default_record_base(cb_for_decode))
+    if length is None:
+        length = (max(P.IMAGE_LEN, rb_for_decode + 0x20)
+                  if args.preset else 0x20)
     dev, info = open_device(args.vid, args.pid, usage_page=args.usage_page,
                             path=args.device)
-    out = dump_range(dev, args.addr, args.length, args.pace)
+    out = dump_range(dev, args.addr, length, args.pace, args.wire_len,
+                     verify=getattr(args, "verify", True))
     if args.out:
         with open(args.out, "wb") as fh:
             fh.write(out)
         print(f"wrote {len(out)} bytes to {args.out}")
+    if args.json:
+        record = P.make_dump(args.addr, out, args.vid, args.pid,
+                             info.get("product_string"),
+                             config_base=config_base,
+                             record_base=record_base)
+        write_json(args.json, record)
+        print(f"dump record written: {args.json} (sha256 "
+              f"{record['sha256'][:12]}...)")
+    if args.preset:
+        try:
+            if args.addr == P.STORED_BASE:
+                preset = P.preset_from_stored(out, args.addr)
+            else:
+                preset = P.preset_from_image(out, args.addr,
+                                             config_base=cb_for_decode,
+                                             record_base=rb_for_decode)
+        except ValueError as e:
+            raise SystemExit(f"cannot build a preset: {e}; read the whole "
+                             f"0x0000..0x{P.IMAGE_LEN - 1:04X} area, or the "
+                             f"stored bank at 0x{P.STORED_BASE:04X}.."
+                             f"0x{P.STORED_BASE + P.STORED_LEN - 1:04X}")
+        write_json(args.preset, preset)
+        print(f"preset written: {args.preset} (version {preset['version']}, "
+              f"{len(preset['keymap'])} keymap bytes)")
     base = args.addr
     for off in range(0, len(out), 16):
         chunk = out[off:off + 16]
@@ -259,7 +444,7 @@ def cmd_replay(args):
         if len(frames) > args.show:
             print(f"  ... ({len(frames) - args.show} more)")
         return 0
-    return send_frames(args, frames)
+    return send_frames(args, frames, args.capture)
 
 
 def cmd_keymap(args):
@@ -270,9 +455,9 @@ def cmd_keymap(args):
     and the resulting stream is replayed to the device.
     """
     keymap = load_keymap(args.keymap)
-    prog, _ = P.program_from_capture(args.template)
+    prog = load_template(args, probe=True)
     na = prog.patch("A", P.KEYMAP_BASE, keymap)
-    nb = prog.patch("B", P.KEYMAP_BASE_B, keymap)
+    nb = prog.patch_b(P.KEYMAP_BASE_B, keymap)
     print(f"patched keymap: {na} B phase A, {nb} B phase B")
     nled = apply_led_args(prog, args)
     if nled:
@@ -281,7 +466,7 @@ def cmd_keymap(args):
     if args.dry_run:
         print(f"{len(frames)} frames (dry run)")
         return 0
-    return send_frames(args, frames)
+    return send_frames(args, frames, getattr(args, "_template_path", args.template))
 
 
 def load_keymap(path: str) -> bytes:
@@ -432,7 +617,7 @@ def cmd_led(args):
     if args.list:
         print_led_modes(led_effect_names())
         return 0
-    prog, _ = P.program_from_capture(args.template)
+    prog = load_template(args, probe=True)
     effect_names = ("mode", "speed", "direction", "symmetry", "single",
                     "react", "rgb_en")
     has_change = bool(args.color) or any(
@@ -449,7 +634,7 @@ def cmd_led(args):
     if args.dry_run:
         print(f"{len(frames)} frames (dry run)")
         return 0
-    return send_frames(args, frames)
+    return send_frames(args, frames, getattr(args, "_template_path", args.template))
 
 
 def parse_int(text: str, what: str) -> int:
@@ -471,19 +656,36 @@ def print_encoder(prog):
     enc = P.read_encoder(prog)
     for name in P.ENCODER_RECORDS:
         info = enc[name]
+        if info.get("macro") is not None:
+            print(f"  {name}: keyboard macro  usage={info['macro']:#04x}")
+            continue
         label = P.ENCODER_BY_NUMBER.get(info["number"], (None, "unknown"))[1]
         print(f"  {name}: number={info['number']:>3}  "
               f"usage={info['usage']:#06x}  second={info['second']:#06x}  {label}")
 
 
+def print_function_table(prog):
+    table = P.read_function_table(prog)
+    print(f"function table (phase B, {len(table)} x "
+          f"{P.FUNCTION_ENTRY_LEN} B at 0x{prog.b_addr(P.FUNCTION_TABLE_BASE):04X}):")
+    for e in table:
+        state = "inert" if e.get("inert") else "active"
+        print(f"  {e['index']:2d} {e['slot']:<11} tag={e['tag']:02x} "
+              f"kind={e['kind']:02x} {state:<6} -> 0x{e['address']:06X}")
+    print(f"  payload starts at 0x{prog.b_addr(P.FUNCTION_PAYLOAD_BASE):04X}, "
+          f"separator 0x{prog.b_addr(P.FUNCTION_TABLE_SEPARATOR):04X}="
+          f"{prog.get_b(P.FUNCTION_TABLE_SEPARATOR) or 0:02x}")
+
+
 def cmd_show(args):
-    """Print the keymap, LED, switches and encoder of a captured session."""
+    """Print the keymap, LED, switches, encoder and function table."""
     prog = load_template(args)
     km = P.read_keymap(prog, "A", P.KEYMAP_BASE)
     print_led(P.read_led(prog))
     print_switches(prog)
     print("encoder media functions:")
     print_encoder(prog)
+    print_function_table(prog)
     print("keymap (upload order, 8*col+row):")
     for r in range(0, P.KEYMAP_LEN, 16):
         chunk = km[r:r + 16]
@@ -493,7 +695,7 @@ def cmd_show(args):
 
 def cmd_switches(args):
     """Show and/or change the four option switches of a template session."""
-    prog = load_template(args)
+    prog = load_template(args, probe=True)
     print_switches(prog)
     if not args.set and args.byte is None:
         return 0
@@ -524,9 +726,29 @@ def cmd_encoder(args):
         for num, usage, name in P.ENCODER_FUNCTIONS:
             print(f"  {num:2d}  {usage:#06x}  {name}")
         return 0
-    prog = load_template(args)
+    prog = load_template(args, probe=True)
     print("encoder media functions:")
     print_encoder(prog)
+    if getattr(args, "macro", None):
+        keys = {}
+        for spec in args.macro:
+            name, _, val = spec.partition("=")
+            name = name.strip()
+            if name not in P.ENCODER_RECORDS:
+                raise SystemExit(f"unknown encoder {name!r}; expected enc0 or enc1")
+            if not val:
+                raise SystemExit(f"--macro expects enc0|enc1=USAGE, got {spec!r}")
+            usage = parse_int(val, f"encoder macro {name}")
+            if not 0 <= usage <= 0xFF:
+                raise SystemExit(f"encoder macro usage {usage} is not a byte")
+            keys[name] = usage
+        n = P.patch_encoder_mode(prog, P.ENCODER_MODE_MEDIA)
+        n += P.patch_encoder_macro(prog, keys)
+        for name in keys:
+            n += P.patch_encoder_entry(prog, name, True)
+        print(f"patched encoder keyboard macros: {n} bytes")
+        print_encoder(prog)
+        return finish(args, prog)
     if not args.set:
         return 0
     enc = {name: info["number"]
@@ -549,14 +771,51 @@ def cmd_encoder(args):
     return finish(args, prog)
 
 
+def default_record_base(config_base: int) -> int:
+    """First function-record byte for the known phase-B layouts."""
+    return 0x0248 if config_base == 0x00E0 else 0x0168
+
+
 def cmd_preset(args):
-    """Export the whole state of a template session as a JSON preset."""
-    prog = load_template(args)
-    preset = P.preset_from_program(prog, args.template)
+    """Export the whole state of a template session or a device dump as JSON.
+
+    With --from-dump the input is a memory image instead of a capture: either
+    the JSON saved by the WebHID page / `dump --json`, or a raw binary image
+    written by `dump --out` (then `--base` gives its first address).  The
+    keymap is taken from the phase-B copy at 0x49, the only one that survives
+    intact in a device dump.
+    """
+    if args.from_dump:
+        try:
+            image, address, record = P.read_dump(args.from_dump, args.base)
+            config_base = getattr(args, "config_base", None)
+            if config_base is None:
+                config_base = int(record.get("configBase", 0x0001))
+            record_base = getattr(args, "record_base", None)
+            if record_base is None:
+                record_base = int(record.get("recordBase",
+                                             default_record_base(config_base)))
+            if address == P.STORED_BASE:
+                preset = P.preset_from_stored(image, address)
+            else:
+                preset = P.preset_from_image(image, address,
+                                             config_base=config_base,
+                                             record_base=record_base)
+        except (OSError, ValueError) as e:
+            raise SystemExit(f"cannot read dump {args.from_dump}: {e}")
+        source = args.from_dump
+        if record.get("created"):
+            print(f"dump created: {record['created']}", file=sys.stderr)
+        if record.get("sha256"):
+            print(f"dump sha256: {record['sha256']}", file=sys.stderr)
+    else:
+        prog = load_template(args)
+        preset = P.preset_from_program(prog, args.template)
+        source = args.template
     if args.out:
         write_json(args.out, preset)
         print(f"preset written: {args.out} (version {preset['version']}, "
-              f"{len(preset['keymap'])} keymap bytes)")
+              f"{len(preset['keymap'])} keymap bytes, from {source})")
     else:
         print(json.dumps(preset, indent=2, ensure_ascii=False))
     return 0
@@ -570,11 +829,11 @@ def cmd_apply(args):
         raise SystemExit(f"cannot read preset {args.preset}: {e}")
     if not isinstance(preset, dict):
         raise SystemExit(f"{args.preset}: expected a JSON object")
-    prog = load_template(args)
+    prog = load_template(args, probe=True)
     counts = P.apply_preset(prog, preset)
     print("applied preset: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
     if args.out:
-        write_json(args.out, frames_artifact(P.emit(prog), args.template,
+        write_json(args.out, frames_artifact(P.emit(prog), getattr(args, "_template_path", None),
                                              P.preset_from_program(prog, args.template)))
         print(f"frames written: {args.out}")
     return finish(args, prog, "apply")
@@ -582,17 +841,18 @@ def cmd_apply(args):
 
 def cmd_backup(args):
     """Write a rollback artifact: the exact frame stream plus a preset."""
-    prog = load_template(args)
+    prog = load_template(args, probe=args.from_device)
     frames = P.emit(prog)
-    preset = P.preset_from_program(prog, args.template)
+    preset = P.preset_from_program(prog, getattr(args, "_template_path", None))
     memory = None
     if args.from_device:
         dev, info = open_device(args.vid, args.pid, usage_page=args.usage_page,
                                 path=args.device)
-        data = dump_range(dev, args.addr, args.length, args.pace)
+        data = dump_range(dev, args.addr, args.length, args.pace, args.wire_len,
+                          verify=getattr(args, "verify", True))
         memory = {"base": args.addr, "length": len(data), "hex": data.hex()}
         print(f"read {len(data)} bytes from {info['path'].decode()}")
-    art = frames_artifact(frames, args.template, preset, memory)
+    art = frames_artifact(frames, getattr(args, "_template_path", None), preset, memory)
     write_json(args.out, art)
     print(f"backup written: {args.out} ({len(frames)} frames, "
           f"sha256 {art['sha256'][:12]}...)")
@@ -613,7 +873,16 @@ def cmd_restore(args):
         if len(frames) > args.show:
             print(f"  ... ({len(frames) - args.show} more)")
         return 0
-    return send_frames(args, frames)
+    capture = None
+    name = art.get("template")
+    if name:
+        for base in (os.path.dirname(os.path.abspath(args.backup)),
+                     "captures", "."):
+            cand = os.path.join(base, name)
+            if os.path.exists(cand):
+                capture = cand
+                break
+    return send_frames(args, frames, capture)
 
 
 def cmd_selftest(args):
@@ -626,13 +895,14 @@ def cmd_selftest(args):
                             path=args.device)
     print(f"replaying {len(frames)} frames to {info['path'].decode()}")
     for i, f in enumerate(frames):
-        if send_report(dev, f) < 0:
+        if send_report(dev, f, args.wire_len) < 0:
             raise SystemExit(f"send failed at frame {i}")
         if args.pace:
             time.sleep(args.pace)
 
     # read the newly appended SET records
     time.sleep(0.2)
+    expected = [P.wire(f, args.wire_len) for f in frames]
     seen = []
     with open(args.log) as fh:
         fh.seek(size0)
@@ -640,14 +910,15 @@ def cmd_selftest(args):
             rec = json.loads(line)
             if rec.get("kind") == "SET" and "raw" in rec:
                 seen.append(bytes.fromhex(rec["raw"]))
-    ok = len(seen) == len(frames)
+    ok = len(seen) == len(expected)
     if ok:
-        for i, (a, b) in enumerate(zip(seen, frames)):
+        for i, (a, b) in enumerate(zip(seen, expected)):
             if a != b:
                 ok = False
                 print(f"MISMATCH frame {i}: emulator {a.hex()} != sent {b.hex()}")
                 break
-    print(f"emulator received {len(seen)}/{len(frames)} SET reports")
+    print(f"emulator received {len(seen)}/{len(expected)} SET reports "
+          f"({args.wire_len} bytes each)")
     print("SELFTEST " + ("PASS" if ok else "FAIL"))
     return 0 if ok else 1
 
@@ -675,15 +946,30 @@ def build_parser():
     ap.add_argument("--usage-page", type=lambda s: int(s, 0),
                     default=WRITE_USAGE_PAGE, help="interface to open")
     ap.add_argument("--device", default=None, help="explicit /dev/hidrawN path")
+    ap.add_argument("--wire-len", type=int, default=P.WIRE_REPORT_LEN,
+                    help="feature report length on the wire (8 on real hardware, "
+                         "16 for the uhid emulator)")
+    ap.add_argument("--no-delays", action="store_true",
+                    help="do not reproduce the captured frame pauses")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("list", help="enumerate matching devices").set_defaults(fn=cmd_list)
     sub.add_parser("info", help="read device info").set_defaults(fn=cmd_info)
 
     d = sub.add_parser("dump", help="read device memory")
-    d.add_argument("--addr", type=lambda s: int(s, 0), required=True)
-    d.add_argument("--length", type=lambda s: int(s, 0), default=0x20)
+    d.add_argument("--addr", type=lambda s: int(s, 0), default=0)
+    d.add_argument("--length", type=lambda s: int(s, 0), default=None,
+                   help="bytes to read (default 0x20, or the whole image 0x190 "
+                        "with --preset)")
     d.add_argument("--out", help="also write the raw bytes to this file")
+    d.add_argument("--json", help="write a WebHID-compatible dump record")
+    d.add_argument("--preset", help="decode the read bytes into a preset")
+    d.add_argument("--config-base", type=lambda s: int(s, 0), default=None,
+                   help="phase-B base of the image (default 0x0001; use 0x00E0 "
+                        "for a burned unit)")
+    d.add_argument("--record-base", type=lambda s: int(s, 0), default=None,
+                   help="first function-record byte (default 0x0248 for base "
+                        "0x00E0, else 0x0168)")
     d.set_defaults(fn=cmd_dump)
 
     r = sub.add_parser("replay", help="replay a captured upload session")
@@ -694,13 +980,13 @@ def build_parser():
 
     k = sub.add_parser("keymap", help="upload a keymap matrix using a template")
     k.add_argument("--keymap", required=True, help="matrix/hex/binary keymap file")
-    k.add_argument("--template", default="captures/baseline_apply.jsonl")
+    k.add_argument("--template", default=None)
     k.add_argument("--dry-run", action="store_true")
     add_led_args(k)
     k.set_defaults(fn=cmd_keymap)
 
     l = sub.add_parser("led", help="show/change the LED palette and effect")
-    l.add_argument("--template", default="captures/baseline_apply.jsonl")
+    l.add_argument("--template", default=None)
     l.add_argument("--show", action="store_true", help="print before and after")
     l.add_argument("--list", action="store_true",
                    help="print the measured number -> effect table")
@@ -708,12 +994,12 @@ def build_parser():
     add_led_args(l)
     l.set_defaults(fn=cmd_led)
 
-    sh = sub.add_parser("show", help="print keymap + LED of a captured session")
-    sh.add_argument("--template", default="captures/baseline_apply.jsonl")
+    sh = sub.add_parser("show", help="print keymap, LED and function table")
+    sh.add_argument("--template", default=None)
     sh.set_defaults(fn=cmd_show)
 
     sw = sub.add_parser("switches", help="show/change the option switches byte")
-    sw.add_argument("--template", default="captures/baseline_apply.jsonl")
+    sw.add_argument("--template", default=None)
     sw.add_argument("--set", action="append", default=[], metavar="NAME=0|1",
                     help="switch to change: " + ", ".join(P.SWITCH_ORDER))
     sw.add_argument("--byte", type=lambda s: int(s, 0),
@@ -722,28 +1008,42 @@ def build_parser():
     sw.set_defaults(fn=cmd_switches)
 
     en = sub.add_parser("encoder", help="show/change encoder media functions")
-    en.add_argument("--template", default="captures/baseline_apply.jsonl")
+    en.add_argument("--template", default=None)
     en.add_argument("--set", action="append", default=[], metavar="enc0|enc1=N",
                     help="media function number (see --list)")
+    en.add_argument("--macro", action="append", default=[], metavar="enc0|enc1=USAGE",
+                    help="make rotation send a keyboard usage (hex or decimal); "
+                         "this is the only way rotation can send ordinary keys")
     en.add_argument("--list", action="store_true",
                     help="print the measured number -> usage table")
     en.add_argument("--dry-run", action="store_true")
     en.set_defaults(fn=cmd_encoder)
 
     pr = sub.add_parser("preset", help="export a template's state as JSON")
-    pr.add_argument("--template", default="captures/baseline_apply.jsonl")
+    pr.add_argument("--template", default=None)
+    pr.add_argument("--from-dump", metavar="FILE",
+                    help="decode a memory dump (page JSON or raw binary) "
+                         "instead of a template")
+    pr.add_argument("--base", type=lambda s: int(s, 0), default=None,
+                    help="address of the first byte of a raw binary dump (default 0)")
+    pr.add_argument("--config-base", type=lambda s: int(s, 0), default=None,
+                    help="phase-B base of the dump (default: dump metadata, "
+                         "or 0x0001 for the staging layout)")
+    pr.add_argument("--record-base", type=lambda s: int(s, 0), default=None,
+                    help="first function-record byte (default: dump metadata, "
+                         "0x0248 for base 0x00E0, else 0x0168)")
     pr.add_argument("--out", help="write the preset here (default: stdout)")
     pr.set_defaults(fn=cmd_preset)
 
     app = sub.add_parser("apply", help="patch a JSON preset into a template")
     app.add_argument("preset", help="preset JSON (k815ctl or WebHID export)")
-    app.add_argument("--template", default="captures/baseline_apply.jsonl")
+    app.add_argument("--template", default=None)
     app.add_argument("--out", help="also write the resulting frames as a backup")
     app.add_argument("--dry-run", action="store_true")
     app.set_defaults(fn=cmd_apply)
 
     bk = sub.add_parser("backup", help="write a rollback artifact")
-    bk.add_argument("--template", default="captures/baseline_apply.jsonl")
+    bk.add_argument("--template", default=None)
     bk.add_argument("--out", default="k815-backup.json")
     bk.add_argument("--from-device", action="store_true",
                     help="also dump device memory (best effort, needs hardware)")
@@ -767,6 +1067,12 @@ def build_parser():
     for p in (r, k, l, s, d, sw, en, app, bk, rs):
         p.add_argument("--pace", type=float, default=0.0,
                        help="seconds to sleep between reports")
+
+    # reads of device memory: every byte is confirmed by a second read unless
+    # --no-verify is given (halves the time of a large dump)
+    for p in (d, bk):
+        p.add_argument("--no-verify", dest="verify", action="store_false",
+                       help="read every byte once instead of twice")
     return ap
 
 

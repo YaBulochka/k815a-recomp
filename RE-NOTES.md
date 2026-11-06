@@ -1,6 +1,7 @@
 # MKESPN K815 — reverse engineering notes
 
-Status: draft research without a physical device.
+Status: hardware verified in November 2026; this file keeps the original
+reverse-engineering record and the recovery notes.
 
 ## 1. What is in the project
 
@@ -179,23 +180,36 @@ keymap next to `KU_*`/`KN_*` (see `PROTOCOL.md`, section 4).
 
 `defMacro.dat` (in the skin) and `app/config/ShortcutMacro.dat` (the working copy,
 `macroNum=5`): macros in a text format, `[Init]` + `[Macros]` + `macroNum=<n>` +
-lines `N=<hex>`, where each entry encodes the macro steps (delays + codes).
+lines `N=<digits>`. Each step is a three-digit decimal usage followed by `000`
+(for example macro 0 = `067000117000116000`, i.e. `C`, `u`, `t`). For the factory
+`ShortcutMacro` group these strings are display names; the device receives a
+16-byte shortcut record instead (see `PROTOCOL.md`, section 4).
 
 ## 4. Open questions
 
-1. The exact PID of the K815 (`0x2350` / `0x2130` / `0x2330`).
-2. The data offset in the read response: in the emulator the response is 16 bytes with
-   Report ID 7 (confirmed on Linux in WebHID: `receiveFeatureReport(7)` returns
-   16 bytes together with the id), on real hardware the response has not been captured yet.
-3. How string macros are encoded (the LED part is already figured out, see 5).
-4. Verify that the device exposes the config only through feature reports
-   (whether there is another interface).
-5. Why the function-record table (`0xF9..0x166`, see `PROTOCOL.md`, section 4) has
-   exactly 22 entries, and what the constant `0x07` at offset 0 of an entry means.
-   The other byte that looked constant (`0x01`) turned out to be the middle byte
-   of the record address; offset 1 is a kind (`0x00` inert, `0x03` internal
-   function, `0x04` Consumer function), and the 20 inert entries are probably the
-   per-key slots of the larger model the configuration file comes from.
+1. *Closed*: the PID is `0x2350` (`30fa:2350`), confirmed with `lsusb` on
+   real hardware.
+2. *Closed*: the read response is longer than the declared report (21 bytes
+   with report ID 7); byte 1 is the data byte. The read must be closed with
+   `07 18 01`; the first two answers after `INIT`/`COMMIT` are stale. On
+   hardware the feature report itself is 8 bytes (ID + 7 payload), because the
+   real descriptor says so; the 16-byte frame in the emulator capture is an
+   artifact of its descriptor.
+3. Text macros and custom macro groups: the factory `ShortcutMacro` group is
+   decoded (single shortcut per macro, `PROTOCOL.md`, section 4), the encoding of
+   an arbitrary text macro is not.
+4. *Closed*: the configuration is exposed only through feature reports on the
+   vendor collections `0xFF00`/`0xFF01` (report ID 7, 8 bytes on hardware).
+   There is no separate configuration interface.
+5. *Mostly closed*: the function-record table has 22 entries. Measured: the
+   K815 uses slots 10..17 for keys 1..8 and 20/21 for the two encoder
+   directions; slots 0..9 and 18/19 are not reachable here. The most likely
+   explanation is 20 key slots of the model family plus 2 encoders, but it is
+   not verified on another device. The constant `0x07` at offset 0 is present
+   even in empty entries and its meaning is still unknown. Offset 1 is a kind
+   (`0x00` inert, `0x03` internal function, `0x04` an active record: Consumer
+   function, macro shortcut or media-mode encoder), and the
+   last three bytes are a 24-bit payload address. `PROTOCOL.md`, section 4.
 6. *Closed*: the application keeps the assignment of the keys in `KU_*`/`KN_*` at
    the indices `87`, `88`, `89`, `71`, `72`, `73`, `54`, `55` for the keys 1..8
    (`KU_*` → phase B, `KN_*` → phase A, upload slots `8`, `16`, `24`, `32`, `9`,
@@ -207,8 +221,29 @@ lines `N=<hex>`, where each entry encodes the macro steps (delays + codes).
    (`0xC9 + n`), the seven light-control items (`0xE8..0xF0`), the special
    function list (`0xF3` Full-key Locked, `0xF1` Fn — two items) and the system
    control list (`0xB0` Power, `0xB1` Sleep — two items), plus "Default" (the
-   factory value) and "Disable" (`0xFF`). Still open: the macro list, which the
-   factory configuration leaves empty (no macro group), and the macro encoding.
+   factory value) and "Disable" (`0xFF`). Macros are closed for the factory
+   `ShortcutMacro` group: per-key markers `0xAF`/`0xB8..0xBE`, `MACRO_MAP`
+   slots 10..17, and a 16-byte record per macro key encoding a single shortcut
+   (Cut/Copy/Paste/Boss/SelectAll = Ctrl+X / Ctrl+C / Ctrl+V / Win+D / Ctrl+A).
+   Still open: the meaning of the record's fixed bytes, text macros (a custom
+   "Z" macro produced no record), and custom macro groups. `PROTOCOL.md`,
+   section 4.
+
+7. *Closed (hardware, November 2026)*: the config base in the info answer is
+   `0x0118` on the factory unit and `0x00E0` after the chip vendor's IST83025B
+   burning tool (`KB_Config.exe`, `20240819112054.zip`). The burning tool also
+   restored the `30fa:2350` identity, the `MKESPN` product info and game mode
+   after the first 16-byte upload corrupted the identity area (the unit came
+   back as `30fa:2360 USB Keyboard` in standard mode). The CLI and page pick
+   the captured session that matches the reported base.
+
+8. *Closed (hardware, November 2026)*: the controller is an **IST83025B/K201**
+   (Wuxi Instant Microelectronics), a fixed-function keyboard ASIC in
+   Dice/QFP48: USB 1.1 low-speed, 20x8 matrix, 4-128 kb EEPROM, built-in
+   7-colour LED driver, one encoder. Both HID interrupt endpoints declare
+   8-byte packets and `bInterval = 10` (100 Hz). The host configures the device
+   only through 8-byte feature reports. See `docs/HARDWARE.md` and
+   `docs/KNOWN-LIMITATIONS.md`.
 
 ## 5. LED: effects, "silent fields", and interface clicks
 
@@ -348,11 +383,16 @@ What an assignment changes:
   section 3.4);
 * the other categories: `Default` restores the factory value, `Disable` writes `0xFF`,
   `Keyboard keys` the raw usage, `Light control` one of `0xE8..0xF0`, `Special function`
-  `0xF3`/`0xF1`, `System control` `0xB0`/`0xB1`. A macro assignment was seen once
-  writing `0xAF`, but the factory macro files leave the macro list empty, so it is
-  not reproducible. The whole table is in `PROTOCOL.md`, section 4;
-* assigning a light-control/system/special/macro function also grows the payload of the
-  function-record table by eight bytes per such key (`PROTOCOL.md`, section 4).
+  `0xF3`/`0xF1`, `System control` `0xB0`/`0xB1`. A macro assignment writes a per-key
+  marker (`0xAF` for key 1, `0xB8..0xBE` for keys 2..8), grows the function table
+  and uploads a 16-byte shortcut record. To make the Macro category usable, enable
+  the group in the skin's `macro/macroGrp.ini` (`macGrpNum=1`,
+  `0=ShortcutMacro`) and copy the factory `ShortcutMacro.dat` next to it.
+  `K815_KEEP` shows the written `KN_*` and `MACRO_MAP*`; the record encoding is
+  in `PROTOCOL.md`, section 4;
+* assigning a light-control/system/special function grows the payload by eight
+  bytes per such key; a macro key adds a 16-byte record and activates its slot
+  (`PROTOCOL.md`, section 4).
 
 The clicks are reproducible through `tools/app_capture.sh`, whose click list
 understands the prefixes `+X,Y` (a key of the device picture, retried until the
@@ -402,12 +442,14 @@ In addition:
   encoder = `41` and `49`; disabling key 1 changes 1 byte to `0xFF` (in phase A,
   because of the override above).
 * The function-record table (`0xF9..`) is an index of 22 five-byte entries
-  `07 <kind> <addr24>`. Only the last two entries are active on this model (the
-  two encoder records); their `kind` is `0x04` for a Consumer function and `0x03`
-  for an internal one. The payload behind the index is not fixed: the application
-  inserts and removes 8-byte records, which moves the addresses, so the end of
-  phase B was seen anywhere between `0x187` and `0x1A7`. The 20 inert entries are
-  probably the per-key records of the larger model the configuration comes from.
+  `07 <kind> <addr24>`. On the default model only the last two entries are
+  active (the two encoder records); `kind = 0x04` marks an active record
+  (a Consumer function, a macro shortcut, or the media-mode encoder), `0x03`
+  an internal function. The payload behind the index is not fixed: the
+  application inserts and removes 8-/16-byte records, which moves the
+  addresses, so the end of phase B was seen anywhere between `0x187` and
+  `0x1C7` (five macro records). The other 20 entries are the key slots; the
+  K815 uses 10..17.
 * `tools/k815ctl.py` `selftest` against the emulator: 663/663 byte for byte.
 * The switches (byte `0x0001`) and the encoder (`USCROLL0/1`) are figured out and carried
   into both tools: `patchSwitches`/`patchEncoder` in `webhid/k815.js`,
@@ -428,11 +470,12 @@ application. The first number of `USCROLL0` is a mode switch: `11` (the default
 value) enables the media mode and produces byte `0x44` at `0x0010` (phase A) and
 `0x0021` (phase B); any other value produces `((n mod 16) << 4) | 0x0B` and breaks the
 media mode: the second encoder entry disappears, the codes become `0xEA`.
-The first number of `USCROLL1` does not affect the stream. `0xF9..x` is an index
+The first number of `USCROLL1` does not affect the stream. `0xF9..` is an index
 of 22 five-byte entries plus a payload of 8-/16-byte records; the structure and
-the measured dependencies are in `PROTOCOL.md`, section 4. Still open there: the
-count 22 and the meaning of the `0x07` at offset 0 of an entry. Everything still
-has to be verified on real hardware.
+the measured dependencies are in `PROTOCOL.md`, section 4. The count is explained
+by 20 key slots plus 2 encoder directions (the K815 uses 10..17 and 20/21), but
+that is not checked on a second model; the meaning of `0x07` at offset 0 is still
+open. Everything still has to be verified on real hardware.
 
 ## 7. Plan for further work
 

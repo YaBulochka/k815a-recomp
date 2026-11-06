@@ -45,16 +45,17 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import k815_proto as P          # noqa: E402
 import k815ctl                  # noqa: E402
+import fixtures                 # noqa: E402
 
-CAPTURE = os.path.join(ROOT, "captures/baseline_apply.jsonl")
-KBCONFIG = os.path.join(ROOT, "extracted/app/config/KBconfig.ini")
-APP_CONFIG = os.path.join(ROOT, "extracted/app/config/config.ini")
+CAPTURE = fixtures.hardware_capture()
+KBCONFIG = fixtures.kbconfig()
+APP_CONFIG = fixtures.app_config()
 
 KEYMAP_A_BASE, KEYMAP_B_BASE = 0x20, 0x49
 # what we do in the interface: select key 3 and assign it F13
 EDIT_SVG, EDIT_IDX, EDIT_CODE, EDIT_TEXT = "key-3", 24, 0x68, "0x68"
-# switches: in the template byte 0x0001 = 0x40 (BALTF4 only), we clear the check box
-EDIT_SW_BYTE = 0x00
+# switches: the e0 template byte is 0xC0 (BALTF4+KEYSMODE); clear BALTF4
+EDIT_SW_BYTE = 0x80
 # encoders: function number -> Consumer-page usage (see PROTOCOL.md)
 EDIT_ENC = {"enc0": (12, 0x00E2), "enc1": (16, 0x0223)}
 ENC_ADDR = {"enc0": 0x016E, "enc1": 0x017E}
@@ -156,11 +157,11 @@ def expected_frames():
     prog, _ = P.program_from_capture(CAPTURE)
     led = P.read_led(prog)                     # defaults, as in the UI
     prog.patch("A", KEYMAP_A_BASE, bytes(km))
-    prog.patch("B", KEYMAP_B_BASE, bytes(km))
+    prog.patch_b(P.KEYMAP_BASE_B, bytes(km))
     P.apply_led(prog, **led)
-    prog.patch("B", 0x0001, bytes([EDIT_SW_BYTE]))
+    prog.patch_b(0x0001, bytes([EDIT_SW_BYTE]))
     for name, (num, usage) in EDIT_ENC.items():
-        addr = ENC_ADDR[name]
+        addr = prog.b_addr(ENC_ADDR[name])
         prog.patch("B", addr, bytes([usage & 0xFF, usage >> 8]))
         second = 0 if num == 0 else usage
         prog.patch("B", addr + ENC_SECOND_COPY, bytes([second & 0xFF, second >> 8]))
@@ -184,8 +185,27 @@ def main():
     ap.add_argument("--display", default=":99")
     ap.add_argument("--profile", default="/tmp/opencode/chrome-x11")
     ap.add_argument("--emu-log", default=os.path.join(ROOT, "captures/e2e_webhid.jsonl"))
+    ap.add_argument("--capture", default=fixtures.hardware_capture())
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args()
+
+    global CAPTURE
+    CAPTURE = args.capture
+
+    # A physical K815 and the uhid emulator share VID/PID 30fa:2350.  Chromium's
+    # chooser cannot reliably select the emulator's 0xFF01 collection while the
+    # real device is plugged in, so skip instead of writing to hardware.
+    try:
+        devs = k815ctl.enumerate_devices(0x30FA, 0x2350)
+    except SystemExit:
+        devs = []
+    physical = [d for d in devs
+                if "MKESPN" not in (d.get("product_string") or "")]
+    if physical:
+        names = ", ".join(sorted({d.get("product_string") or "?" for d in physical}))
+        print(f"SKIP: physical K815 connected ({names}); "
+              "unplug it to run the emulator e2e")
+        return 0
 
     display = args.display
     dnum = display.lstrip(":")
@@ -195,7 +215,8 @@ def main():
 
     try:
         # the session template must match the sources
-        subprocess.run([sys.executable, os.path.join(ROOT, "tools/build_webhid.py")],
+        subprocess.run([sys.executable, os.path.join(ROOT, "tools/build_webhid.py"),
+                        "--capture", CAPTURE],
                        check=True, cwd=ROOT, stdout=subprocess.DEVNULL)
 
         # 1. display
@@ -218,8 +239,10 @@ def main():
         # 3. emulator
         if os.path.exists(args.emu_log):
             os.remove(args.emu_log)
+        emu_base = P.program_from_capture(CAPTURE)[0].base
         procs.append(Proc([sys.executable, os.path.join(ROOT, "tools/k815_emulator.py"),
                            "--log", args.emu_log, "--seed-ini", APP_CONFIG,
+                           "--dev-value", hex(emu_base),
                            "--pidfile", "/tmp/opencode/e2e_emulator.pid"],
                           "/tmp/opencode/e2e_emulator.log"))
         time.sleep(3)
@@ -332,7 +355,7 @@ def main():
                      e0: e0.value, e1: e1.value };
           })()
         """)
-        if state["sw"] != "0x00" or state["e0"] != "12" or state["e1"] != "16":
+        if state["sw"] != "0x80" or state["e0"] != "12" or state["e1"] != "16":
             raise RuntimeError(f"switches and encoder did not toggle: {state}")
         print(f"switch byte -> {state['sw']}, encoder A -> {state['e0']}, "
               f"B -> {state['e1']}")
@@ -340,6 +363,9 @@ def main():
         # 8. apply
         start = count_lines(args.emu_log)
         print("pressing Apply")
+        # Apply asks for a confirmation until the first successful Dump in the
+        # session; this test has no interactive dialog.
+        cdp.evaluate("window.confirm = () => true; 'ok'")
         t0 = time.time()
         cdp.evaluate("document.getElementById('btnApply').click()")
 
@@ -352,11 +378,18 @@ def main():
         time.sleep(0.5)
         got = read_sets(args.emu_log, start)
 
-        # 9. compare
+        # 9. compare. The write is followed by read-back verification, whose
+        # 07 18 05 commands are SET reports too: compare only the first session.
         print(f"frames received: {len(got)}, expected: {len(want)}, in {time.time()-t0:.1f} s")
-        ok = got == want
+        ok = got[:len(want)] == want
         if ok:
             print("the frame stream matched byte for byte")
+            # wait until the read-back verification has finished and the page is
+            # idle again, otherwise Read is still blocked
+            for _ in range(120):
+                time.sleep(0.5)
+                if not cdp.evaluate("document.getElementById('btnApply').disabled"):
+                    break
             # the read path was broken by the same bug, so check it too
             cdp.evaluate("document.getElementById('btnRead').click()")
             time.sleep(2.5)
@@ -367,6 +400,12 @@ def main():
                 ok = False
                 print("reading device information failed:")
                 print("\n".join(text.splitlines()[-4:]))
+            if "verified" in text and "after write" in text:
+                print("read-back verification: ok")
+            else:
+                ok = False
+                print("read-back verification did not report success:")
+                print("\n".join(text.splitlines()[-6:]))
         else:
             report_diff(want, got)
             screenshot(display, "/tmp/opencode/e2e_fail_frames.png")
@@ -425,10 +464,14 @@ def report_diff(want, got):
 
 
 def onboard(cdp, display):
-    """Walk the chooser dialog once: click the 0xFF01 row and then "Connect"."""
+    """Walk the chooser dialog once and grant both vendor interfaces.
+
+    The chooser lists the K815 twice (0xFF01 and 0xFF00); the page prefers the
+    0xFF01 write collection, so both rows are tried until it appears.
+    """
     cdp.evaluate("navigator.hid.requestDevice({filters:[{vendorId:0x30FA}]}).catch(()=>{})")
     time.sleep(3)
-    for attempt, row_y in enumerate((211, 171), 1):
+    for attempt, row_y in enumerate((175, 213), 1):
         xdotool(display, "mousemove", "230", str(row_y), "click", "1")
         time.sleep(0.5)
         xdotool(display, "mousemove", "505", "510", "click", "1")

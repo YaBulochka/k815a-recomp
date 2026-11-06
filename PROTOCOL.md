@@ -11,6 +11,13 @@ Communication goes **only through feature reports**, the report length is 16
 bytes, the report is **numbered, Report ID = 7**. There is no driver and no
 interrupt reads.
 
+> **Transport limits on hardware.** The K815 is USB 1.1 low-speed. Both HID
+> interrupt endpoints declare `bInterval = 10` (10 ms), so the host polls the
+> keyboard at **100 Hz**. Feature reports are 8 bytes on the wire (see section
+> 2). There is **no block-read command**: every memory byte needs its own
+> `05` -> `GET_FEATURE` -> `01` cycle, about 20 ms per byte. See
+> `docs/HARDWARE.md` and `docs/KNOWN-LIMITATIONS.md`.
+
 * Windows: `HidD_SetFeature / HidD_GetFeature`.
 * Linux: `hidraw` + `HIDIOCSFEATURE` / `HIDIOCGFEATURE` (or `python-hid`).
 * Web: `WebHID` `sendFeatureReport(reportId, data)` / `receiveFeatureReport(reportId)`.
@@ -34,6 +41,15 @@ memory, so the written configuration survives without the software.
 
 ## 2. Report format
 
+> **Hardware note (verified on a real K815).** The device's HID descriptor
+> declares report ID `0x07` with **seven payload bytes** (8 bytes with the ID).
+> The uhid emulator used for the first capture declared fifteen (16 with the
+> ID), and the vendor application sizes its buffers from
+> `FeatureReportByteLength`. So on hardware every report is 8 bytes; the
+> `flag` at offset 14 below exists only in the emulator capture and is never
+> sent. The tools keep 16-byte frames internally and truncate them at the
+> transport (`k815_proto.wire`, `--wire-len`).
+
 ```
 offset  field
 0       0x07        Report ID
@@ -53,6 +69,19 @@ offset  field
 The actual byte address = `address(4,5) + index(3)`.
 
 ## 3. Upload session (one Apply press)
+
+> **Hardware note.** The addresses in this section are the emulator layout
+> (phase B starts at `0x0001`). A real device reports its config base in the
+> startup `GET_FEATURE` answer, bytes 14..15. The factory K815 used `0x0118`;
+> a unit configured with the chip burning tool reports `0x00E0`. The
+> application writes phase B at `base + offset`: header `base+0x00`, keymap
+> `base+0x48`, palette copy `base+0xE8`, function index `base+0xF8`, record
+> payload `base+0x168`, and the two pointers in the header at `base+0x1C` and
+> `base+0x1E` carry the keymap and function-table bases. The phase-A addresses
+> (`0x10`, `0x20`, `0xD0`) do not move. The repository ships both captured
+> sessions (`tests/fixtures/hw_apply.jsonl.gz` for `0x0118` and
+> `hw_apply_e0.jsonl.gz` for `0x00E0`); `k815ctl` and the WebHID page pick
+> the one matching the reported base.
 
 One Apply press = one session of 663 reports, reproduced exactly by
 `tools/k815_proto.py`. A session has two phases, separated by a "verify read"
@@ -165,7 +194,8 @@ dialog of the application, one run per row:
 | `0xF3`       | special function: "Full-key Locked" (first item of the list)       |
 | `0xB0`       | system control: "Power" (first item)                              |
 | `0xB1`       | system control: "Sleep" (second item)                             |
-| `0xAF`       | macro: one observation, see below                                 |
+| `0xAF`       | macro on key 1 (the first key slot)                               |
+| `0xB8..0xBE` | macro on keys 2..8 (one value per key slot, not per macro)        |
 | `0xFF`       | no function ("Disable")                                           |
 
 The special-function list holds exactly two entries and the system-control list
@@ -173,16 +203,45 @@ two as well, so both are swept completely: `0xF3` Full-key Locked, `0xF1` Fn,
 `0xB0` Power, `0xB1` Sleep. The order inside the list is not the order of the
 values.
 
-"The macro category" needs a macro group to offer anything: the factory
-configuration ships `macro/macroGrp.ini` with `macGrpNum=0`, and with the vendor
-`ShortcutMacro.dat` the group combo stays empty, so nothing can be selected in
-that list. `0xAF` was seen once for the default macro selection, but it is not
-reproducible from the factory files and the macro value space therefore stays
-open. What the factory `ShortcutMacro.dat` does contain is settled: `macroNum=5`
-entries, and their bodies decode to key sequences (macro 0 = `C`,`u`,`t`, 1 =
-`C`,`o`,`p`,`y`, 2 = `P`,`a`,`s`,`t`,`e`, 3 = `B`,`o`,`s`,`s`, 4 =
-`S`,`e`,`l`,`e`,`c`,`t`,`A`,`l`,`l`, each usage in decimal followed by a zero
-byte). The application plays these itself, so they never reach the device.
+The macro category needed a macro group to offer anything: the factory
+`macro/macroGrp.ini` has `macGrpNum=0`, so the group combo stayed empty. Adding
+`macGrpNum=1` + `0=ShortcutMacro` and the factory `ShortcutMacro.dat` to the
+skin's `macro/` directory makes the list appear (Cut, Copy, Paste, Boss,
+SelectAll). Assigning a macro to a key then:
+
+* writes the per-key value from the table above (`0xAF` for key 1,
+  `0xB8..0xBE` for keys 2..8). The value does **not** depend on which macro was
+  chosen: the same Cut macro on keys 1..8 gives `AF B8 B9 BA BB BC BD BE`;
+* writes `MACROGRP_MAP<slot>` / `MACRO_MAP<slot>` in `config.ini`, where
+  `slot = 10 + key - 1` (group and macro index);
+* activates the key's function slot and uploads a 16-byte record per
+  macro-assigned key (see the function table below).
+
+The factory `ShortcutMacro.dat` stores the five display strings (`Cut`, `Copy`,
+`Paste`, `Boss`, `SelectAll`, each step is a three-digit decimal usage followed
+by `000`). The record does not contain that text: the usage byte matches a
+single shortcut key. The measured records are consistent with these shortcuts
+(the modifier mapping is inferred from the two observed modifier bytes):
+
+| macro      | record (16 bytes)                                     | shortcut (inferred) |
+|------------|-------------------------------------------------------|---------------------|
+| Cut        | `01 00 86 e0 86 1b 06 e0 06 1b 00 00 00 00 00 00`     | Ctrl+X              |
+| Copy       | `01 00 86 e0 86 06 06 e0 06 06 00 00 00 00 00 00`     | Ctrl+C              |
+| Paste      | `01 00 86 e0 86 19 06 e0 06 19 00 00 00 00 00 00`     | Ctrl+V              |
+| Boss       | `01 00 86 e3 86 07 06 e3 06 07 00 00 00 00 00 00`     | Win+D               |
+| SelectAll  | `01 00 86 e0 86 04 06 04 06 e0 00 00 00 00 00 00`     | Ctrl+A              |
+
+The usage byte (offsets 5 and 9) is X/C/V/D/A; the modifier byte is `0xe0` for
+the Ctrl shortcuts and `0xe3` for Win+D. The SelectAll record has the two halves
+swapped relative to the others (observed once; worth re-checking on hardware).
+The first two bytes are `01 00`; bytes 10..15 are zero. The exact meaning of
+`0x86`/`0x06` is not decoded yet.
+
+One custom single-letter macro ("Z") produced the keymap marker but **no**
+record; the application only uploaded the keymap byte. This experiment is
+inconclusive: the hand-written `ShortcutMacro.dat` may not have been a valid
+custom macro set. Text macros and custom groups stay open until they are
+re-checked with the vendor editor or on hardware.
 
 "Default" in the dialog restores the factory value of that key (key 1 →
 `0x59`). The tools write the byte as given, so any of these values can be put on
@@ -205,8 +264,13 @@ header `0x01..0x21` of phase B.
 | `0x1a` bit 7     | `HR_SYMMETRY`                                         |
 | `0x1b` bits 0..6  | `RGB_HR_COLOR_EN0..6` (bit mask)                      |
 
-The color channels are 4-bit (0..15). Verified byte by byte on 6 differential
-captures (`cols123`, `c1_green/red/blue`, `c2_black`, `led1_black`).
+The color channels are 4-bit (0..15) and are stored **inverted**: a stored
+nibble of `0` is full brightness, `15` is off. Setting colour 1 to
+`R 15 · G 0 · B 0` lit the keys cyan, because the device rendered
+`R 0 · G 15 · B 15`; `15/15/15` is black and `0/0/0` is white. The CLI and the
+preset files keep the raw wire value, and the WebHID page converts it for
+display. Verified byte by byte on 6 differential captures (`cols123`,
+`c1_green/red/blue`, `c2_black`, `led1_black`) plus a live write.
 
 The high nibble of every second byte (`X`) is not controlled by any config
 field: editing any LED fields does not change it, so it is a template of the
@@ -320,7 +384,7 @@ reference run:
 
 `ConfgCnt` has no effect on this.
 
-### Fn actions, encoder, and macros
+### Fn actions and encoder
 
 * `0xE9..0xF4` = `UFN_F1..UFN_F12` from the section `[Config1]`
   (`config.ini`). Verified: `UFN_F1=170` → `0xE9` changes from `0xCE` to
@@ -380,13 +444,21 @@ reference run:
 
   The encoder keys are a separate mechanism: the cells `1_5` and `1_6` of the
   file `KBconfig.ini` (slots `41` and `49` of the matrix, "Encoder A/B" on the
-  diagram, values `0xE9` and `0xF4`). What actually triggers on real hardware
-  when both a key and a media function are set is unconfirmed.
+  diagram, values `0xE9` and `0xF4`). **Hardware result:** rotation does not
+  use slot `41`; slot `49` is the encoder **press**. To make rotation send an
+  ordinary keyboard key, put a single-key macro record in the direction's
+  record: `01 00 86 <usage> 06 <usage>` followed by ten zero bytes. With
+  `enc0 = 01 00 86 56 06 56 ...` and `enc1 = 01 00 86 57 06 57 ...` the unit
+  sends Keypad `-`/`+`, has no media function, and the press follows the
+  keymap slot `49`. This is the basis of
+  `presets/k815-f13-20-encoder.json`.
 
 * `0xF9..0x187` (and further) is the function-record table: an index of 22
-  five-byte entries followed by a payload area.
+  five-byte entries followed by a payload area. The ranges below are the
+  default session; an active macro or another function inserts records and
+  shifts the payload.
 
-  | range          | content                                            |
+  | range          | content (default session)                          |
   |----------------|----------------------------------------------------|
   | `0xF9..0x166`  | 22 entries of 5 bytes                              |
   | `0x167`        | separator, always `0x00`                           |
@@ -403,21 +475,38 @@ reference run:
   |--------|-------------------------------------------|
   | `0x00` | no record (the entry is inert)            |
   | `0x03` | the entry refers to an internal function  |
-  | `0x04` | the entry refers to a Consumer function   |
+  | `0x04` | an active record: a Consumer function, a macro shortcut, or the media-mode encoder |
 
   * In the default configuration (media mode) the entries 0..19 read
     `07 00 68 01 00`, entry 20 reads `07 04 68 01 00` (address `0x000168`, the
     record of `USCROLL0`) and entry 21 reads `07 04 78 01 00` (address
     `0x000178`, the record of `USCROLL1`). The 20 other entries carry the same
-    address `0x168` but are inert, because their kind byte is `0x00`. They are
-    probably the per-key slots of the larger model this configuration file comes
-    from (20 keyboard keys); the K815 never gives them a record.
+    address `0x168` but are inert, because their kind byte is `0x00`.
+  * **The 22 entries.** The 20 non-encoder entries look like the key slots of
+    the model family (20 keyboard keys); the K815 uses slots **10..17 for keys
+    1..8** (measured: assigning a macro to key 1 activates entry 10, key 2
+    entry 11, … key 8 entry 17). Slots 0..9 and 18/19 are not reachable on this
+    8-key model. Together with the two encoder directions (20/21) this explains
+    the number `22`; the larger model hypothesis is the most likely one but is
+    not verified on another device. In a device dump the empty entries all
+    point at the current payload start; the pointer is not meaningful while
+    `kind = 0`.
+  * The constant `0x07` at offset 0 is present in every entry, including the
+    inert ones. It is a tag/version field of the 5-byte entry, not a value
+    derived from the record. Its exact meaning is still unknown (it is not the
+    report id as far as the protocol shows; the same byte is used even when
+    the entry is empty).
+  * Assigning a macro to a key activates its slot (`kind = 0x04`), inserts a
+    16-byte record and moves the following addresses by 16. Five macro keys
+    give entries 10..14 = `07 04 68/78/88/98/A8 01 00`, entries 15..19 inert
+    at `0x01B8`, and the encoders at `0x01B8`/`0x01C8`. The keymap then holds
+    the per-key macro markers from the previous section.
   * The payload is not of a fixed length. A record is 8 or 16 bytes and the
     application inserts and removes them, so the addresses in the index move:
     with eight bytes more the whole payload shifts by eight (entries 0..10 point
     at `0x168` and the rest at `0x170`), and with `CurConfig = 3`/`4` the payload
     collapses to one byte. Measured range of the end of phase B: `0x187` (base)
-    to `0x1A7` (four extra 8-byte records of zeros).
+    to `0x1C7` (five extra 16-byte macro records).
   * `UFN_F1..UFN_F12` do not touch the table: with `UFN_F1=170` and the media
     mode still on, only `0x00E9` changes (`0xCE` → `0xAA`).
   * The function number only rewrites the record body: `USCROLL0=11,3` changes
@@ -430,14 +519,10 @@ reference run:
   * With the first number `4` the payload shifts by 8 bytes: the record of
     `USCROLL1` moves to `0x170` and entry 21 becomes `07 04 70 01 00`. This
     shows that the third field is an address and not a constant.
-  * `ShortcutMacro.dat` and `MACRO_MAP*` do not touch the table: the macros are
-    played by the application itself and are not uploaded. Assigning them (or a
-    light-control/system function) to a key *does* grow the payload, by eight
-    zero bytes per such key; the tool replays the template as captured, so the
-    record area always reflects the configuration the template came from.
-
-  Still open: why the index has exactly 22 entries, and what offset 0 (`0x07`)
-  means. On this model only the two encoder entries are ever active.
+  * `MACRO_MAP*`/`MACROGRP_MAP*` and `ShortcutMacro.dat` do not directly change
+    the table; what changes it is the resulting key assignment. The macro
+    records described above are uploaded by the application, contrary to an
+    earlier note.
 
 
 ## 5. Startup handshake
@@ -447,13 +532,47 @@ After opening the device the application sends:
 ```
 07 18 11 00 00 00 00 00   INIT
 07 18 00 00 00 00 00 00   COMMIT
-GET_FEATURE (without a preceding read)       -> 16-byte response, the application
-GET_FEATURE                                 reads a 16-bit value from it
+GET_FEATURE               -> the firmware returns up to 21 bytes
 ```
+
+Verified on hardware: the first 16 bytes are a device-info header,
+
+```
+07 21 c1 41 01 01 02 08 01 02 64 02 60 01 18 01
+```
+
+and bytes 14..15 are the **config base** (`18 01` = `0x0118` on the factory
+unit; `e0 00` = `0x00E0` after the burning tool). The application reads that
+16-bit value and writes it into the phase-A service block at `0xD2..0xD3`. The
+emulator answers with a fake value, which is why its capture uses base
+`0x0001`.
 
 The application **does not read the whole config from the device**: it takes
 the settings from `config.ini`/`KBconfig.ini`, and from the device it reads
-only the service header (in the session, the read of `0x0001`).
+only the service header (in the session, the read of `base`).
+
+### Reading one byte (verified on hardware)
+
+```
+07 18 05 00 <lo> <hi> 00 00   load the read address
+   sleep ~1 ms
+GET_FEATURE                   answer byte 1 is the data byte
+07 18 01 00 00 00 00 00       close the read
+```
+
+The closing commit is required: without it the firmware answers the next
+request with the status byte `0xb4` instead of memory. The first two answers
+after `INIT`/`COMMIT` are a stale buffer and must be discarded. This cycle is
+implemented by `k815ctl.py read_byte`/`dump_range` and by `readRanges` in
+`webhid/app.js`.
+
+> **Hardware note (November 2026).** A batch of memory reads leaves the firmware
+> in the read state: the keyboard stops sending normal input. Closing the HID
+> handle does not help, and a `USBDEVFS_RESET` (bus reset) does not help either
+> because it does not power-cycle the controller. A physical replug does.
+> Sending the startup handshake **`INIT` + `COMMIT` + GET** after the batch
+> restores input immediately. `readRanges` in `webhid/app.js` does this in a
+> `finally` block; `k815ctl info` after a dump has the same effect.
 
 ## 6. Tools
 
@@ -506,7 +625,9 @@ only the service header (in the session, the read of `0x0001`).
 * `tools/e2e_webhid.py`: an end-to-end test: real Chromium + WebHID + `uhid`.
 * `tools/build_webhid.py`: a generator of `webhid/k815_session.js` from a
   capture; it also embeds the effect catalogue of `tools/led_modes.json` as
-  `LED_EFFECTS`, which the page uses to label the effect list.
+  `LED_EFFECTS`, which the page uses to label the effect list, and the frame
+  pauses measured with the `t` field of the capture (`delays`, gaps over 20 ms,
+  plus `readPauseMs`).
 
 Check: `python3 tools/k815ctl.py selftest captures/baseline_apply.jsonl
 --log captures/wine4.jsonl` → the emulator accepts 663/663 reports
@@ -546,3 +667,22 @@ Two caveats that matter for the first write to real hardware:
   effort, requires hardware) and puts the result into the field `deviceMemory`;
   the tool does not attempt to restore from this dump, because the phases write
   different values to the same addresses.
+
+### Dump to preset
+
+`dump` reads device memory one byte at a time. `dump --json FILE` writes the
+same record the WebHID page's Dump button produces (`kind: "k815-memory-dump"`,
+`address`, `length`, a `memory` map of 16-byte lines and a `sha256`);
+`dump --preset FILE` reads the whole image and decodes it directly.
+
+`preset --from-dump FILE` converts a saved dump into this section's preset
+format. It accepts the page/CLI JSON, a raw binary image from `dump --out`
+(with `--base` for its first address), and the `deviceMemory` of a
+`backup --from-device` artifact. A bad `sha256` or a gap in the image is
+rejected, not filled with zeros.
+
+A dump is one memory image, not the two-phase stream. The keymap is therefore
+taken from the phase-B copy at `0x0049`: the later header write covers
+`0x0020..0x0021` and the phase-B keymap covers `0x0049..0x00E8`, so the phase-A
+copy at `0x0020` does not survive intact. The switches, LED header and encoder
+records are already read from their phase-B addresses.

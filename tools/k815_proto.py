@@ -38,6 +38,9 @@ memory addresses, blocks are at most 8 bytes):
 """
 from __future__ import annotations
 
+import datetime
+import gzip
+import hashlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -55,11 +58,33 @@ SUB_ERASE = 0x81
 SUB_INIT = 0x11
 SUB_BEGIN = 0x41
 
-REPORT_LEN = 16
+REPORT_LEN = 16             # internal frame size used by captures and artifacts
+# The real device declares a 7-byte feature report payload (8 bytes with the
+# report ID).  The emulator was captured with a 16-byte descriptor, so the
+# vendor application padded its buffers to 16 there; only the first 8 bytes are
+# meaningful on hardware (`flag` at offset 14 does not exist on the wire).
+WIRE_REPORT_LEN = 8
+# A GET_FEATURE answer is longer than the declared report: the firmware returns
+# a 16-byte device-info header plus command data (the app asks for 21 bytes).
+READ_ANSWER_LEN = 21
 KEYMAP_BASE = 0x20          # phase A
 KEYMAP_BASE_B = 0x49        # phase B writes the same 160-byte table here
 KEYMAP_LEN = 160
 IMAGE_LEN = 0x190
+
+# Function-record table (phase B).  22 five-byte index entries start at 0xF9;
+# 0x167 is a zero separator, the records themselves start at 0x168.  Entry
+# layout: tag(1) kind(1) address(3, little-endian).  On the K815 the eight keys
+# are slots 10..17 and the two encoder directions 20/21 (PROTOCOL.md, section 4).
+FUNCTION_TABLE_BASE = 0xF9
+FUNCTION_TABLE_ENTRIES = 22
+FUNCTION_ENTRY_LEN = 5
+FUNCTION_TABLE_SEPARATOR = 0xF9 + FUNCTION_TABLE_ENTRIES * FUNCTION_ENTRY_LEN
+FUNCTION_PAYLOAD_BASE = FUNCTION_TABLE_SEPARATOR + 1
+FUNCTION_ENTRY_TAG = 0x07
+FUNCTION_KIND_EMPTY = 0x00
+FUNCTION_KIND_INTERNAL = 0x03
+FUNCTION_KIND_ACTIVE = 0x04     # Consumer function, macro shortcut, media encoder
 
 # Which keymap byte belongs to which physical control.  The ids match the WebHID
 # driver (`webhid/k815.js`), so a preset moves between the CLI and the browser.
@@ -99,6 +124,19 @@ def report(op, sub, index=0, addr=0, data=0, ln=0, flag=0, tail=b""):
         b[8:8 + len(tail)] = tail
     b[14] = flag & 0xFF
     return bytes(b)
+
+
+def wire(frame: bytes, length: int = WIRE_REPORT_LEN) -> bytes:
+    """Cut an internal 16-byte frame down to the bytes that go on the wire.
+
+    The real HID descriptor declares report ID 7 with seven payload bytes, so
+    everything past byte 7 (the zero padding and the emulator-only ``flag``)
+    never reaches the device.  Truncating keeps the frame valid for the
+    emulator too: its descriptor is 16 bytes, and ``length=16`` reproduces the
+    old behaviour.
+    """
+    frame = bytes(frame)
+    return frame[:length].ljust(length, b"\0")
 
 
 @dataclass
@@ -142,6 +180,30 @@ class Block:
 class Program:
     """A replayable upload session: blocks interleaved with verbatim frames."""
     items: list = field(default_factory=list)     # list[Block | Frame]
+    # Where phase B starts.  The emulator template uses 0x0001; a real device
+    # reports its own base in the startup GET answer (0x0118 on the K815).
+    base: int = 0x0001
+    # First byte of the function-record payload (0x168 staging, 0x280 on the
+    # real device: its stored bank has a two-byte separator instead of one).
+    record_base: int = 0x168
+
+    def b_addr(self, addr: int) -> int:
+        """Translate a staging-layout phase-B address to this session's."""
+        if addr >= 0x0168:
+            return self.record_base + (addr - 0x0168)
+        return self.base + (addr - 0x0001)
+
+    def get_b(self, addr: int) -> int | None:
+        return self.get("B", self.b_addr(addr))
+
+    def patch_b(self, addr: int, data: bytes) -> int:
+        return self.patch("B", self.b_addr(addr), data)
+
+    def patch_bits_b(self, addr: int, mask: int, value: int) -> int:
+        return self.patch_bits("B", self.b_addr(addr), mask, value)
+
+    def patch_nibble_b(self, addr: int, which: str, value: int) -> int:
+        return self.patch_nibble("B", self.b_addr(addr), which, value)
 
     def texts(self) -> str:
         out = []
@@ -224,8 +286,8 @@ def patch_palette(prog: "Program", colors) -> int:
     for i, rgb in enumerate(colors):
         r, g, b = (v & 0x0F for v in rgb)
         a0 = LED_PAL_BASE + 2 * i
-        n += prog.patch(LED_PHASE, a0, bytes([(r << 4) | b]))
-        n += prog.patch_nibble(LED_PHASE, a0 + 1, "lo", g)
+        n += prog.patch_b(a0, bytes([(r << 4) | b]))
+        n += prog.patch_nibble_b(a0 + 1, "lo", g)
     return n
 
 
@@ -234,8 +296,8 @@ def read_palette(prog: "Program") -> list:
     out = []
     for i in range(LED_COLORS):
         a0 = LED_PAL_BASE + 2 * i
-        b0 = prog.get(LED_PHASE, a0) or 0
-        b1 = prog.get(LED_PHASE, a0 + 1) or 0
+        b0 = prog.get_b(a0) or 0
+        b1 = prog.get_b(a0 + 1) or 0
         out.append((b0 >> 4, b1 & 0x0F, b0 & 0x0F))
     return out
 
@@ -262,28 +324,28 @@ def apply_led(prog: "Program", palette=None, mode=None, speed=None,
     if palette is not None:
         n += patch_palette(prog, palette)
     if mode is not None:
-        n += prog.patch_bits(LED_PHASE, LED_MODE_ADDR, LED_MODE_MASK, mode)
+        n += prog.patch_bits_b(LED_MODE_ADDR, LED_MODE_MASK, mode)
     if speed is not None:
-        n += prog.patch_bits(LED_PHASE, LED_SPEED_ADDR, LED_SPEED_MASK, speed)
+        n += prog.patch_bits_b(LED_SPEED_ADDR, LED_SPEED_MASK, speed)
     if direction is not None:
-        n += prog.patch_bits(LED_PHASE, LED_DIR_ADDR, LED_DIR_MASK,
+        n += prog.patch_bits_b(LED_DIR_ADDR, LED_DIR_MASK,
                              (direction & 0x03) << 6)
     if symmetry is not None:
-        n += prog.patch_bits(LED_PHASE, LED_MODE_ADDR, LED_SYM_MASK,
+        n += prog.patch_bits_b(LED_MODE_ADDR, LED_SYM_MASK,
                              0x80 if symmetry else 0)
     if single is not None:
-        n += prog.patch_bits(LED_PHASE, LED_MODE_ADDR, LED_SINGLE_MASK,
+        n += prog.patch_bits_b(LED_MODE_ADDR, LED_SINGLE_MASK,
                              0x10 if single else 0)
     if react is not None:
-        n += prog.patch_bits(LED_PHASE, LED_REACT_ADDR, LED_REACT_MASK, react)
+        n += prog.patch_bits_b(LED_REACT_ADDR, LED_REACT_MASK, react)
     if rgb_en is not None:
-        n += prog.patch_bits(LED_PHASE, LED_RGBEN_ADDR, LED_RGBEN_MASK, rgb_en)
+        n += prog.patch_bits_b(LED_RGBEN_ADDR, LED_RGBEN_MASK, rgb_en)
     return n
 
 
 def read_led(prog: "Program") -> dict:
     """Read back the LED palette and effect fields as a dict."""
-    g = lambda a: prog.get(LED_PHASE, a) or 0        # noqa: E731
+    g = lambda a: prog.get_b(a) or 0                 # noqa: E731
     b19, b1a, b10, b1b = g(0x19), g(0x1A), g(0x10), g(0x1B)
     return {
         "palette": read_palette(prog),
@@ -329,19 +391,19 @@ def switch_value(sw) -> int:
 
 def read_switches(prog: "Program") -> dict:
     """Current switches as a dict of booleans."""
-    v = prog.get(SWITCH_PHASE, SWITCH_ADDR) or 0
+    v = prog.get_b(SWITCH_ADDR) or 0
     return {name: bool(v & bit) for name, bit in SWITCH_BITS.items()}
 
 
 def apply_switches(prog: "Program", sw) -> int:
     """Write the switches byte.  Returns 1 if it changed, else 0 (like the JS)."""
-    cur = prog.get(SWITCH_PHASE, SWITCH_ADDR)
+    cur = prog.get_b(SWITCH_ADDR)
     if cur is None:
         return 0
     nv = switch_value(sw)
     if cur == nv:
         return 0
-    prog.patch(SWITCH_PHASE, SWITCH_ADDR, bytes([nv]))
+    prog.patch_b(SWITCH_ADDR, bytes([nv]))
     return 1
 
 
@@ -354,6 +416,17 @@ ENCODER_PHASE = "B"
 ENCODER_RECORDS = {"enc0": 0x0168, "enc1": 0x0178}
 ENCODER_CODE_OFFSET = 6
 ENCODER_COPY_STRIDE = 6
+# The first number of USCROLL0 selects the encoder mode: 11 is the media mode
+# and writes 0x44; everything else uses ((n mod 16) << 4) | 0x0B.
+ENCODER_MODE_A_ADDR = 0x10
+ENCODER_MODE_B_ADDR = 0x21
+ENCODER_MODE_MEDIA = 11
+ENCODER_MODE_MEDIA_BYTE = 0x44
+ENCODER_MODE_BYTE_BASE = 0x0B
+# A single-key macro record: 01 00 <down> <usage> <up> <usage> ...
+ENCODER_MACRO_TAG_DOWN = 0x86
+ENCODER_MACRO_TAG_UP = 0x06
+ENCODER_MACRO_LEN = 16
 
 # (number in [Config1], HID Consumer usage, name).  Measured by differential
 # sweep; numbers 17 and up are the application's own functions, which never
@@ -393,10 +466,93 @@ def encoder_usage_of(number: int) -> int | None:
     return None if fn is None else fn[0]
 
 
-def encoder_copy_addrs(name: str) -> tuple:
+def encoder_copy_addrs(prog: "Program", name: str) -> tuple:
     """The two little-endian usage slots inside one direction's record."""
-    base = ENCODER_RECORDS[name] + ENCODER_CODE_OFFSET
+    base = prog.b_addr(ENCODER_RECORDS[name]) + ENCODER_CODE_OFFSET
     return base, base + ENCODER_COPY_STRIDE
+
+
+def encoder_mode_byte(mode: int) -> int:
+    """The phase-A/phase-B byte for an encoder mode number."""
+    mode = int(mode) % 16
+    if mode == ENCODER_MODE_MEDIA:
+        return ENCODER_MODE_MEDIA_BYTE
+    return (mode << 4) | ENCODER_MODE_BYTE_BASE
+
+
+def patch_encoder_mode(prog: "Program", mode: int) -> int:
+    """Write the encoder mode byte into phase A and phase B."""
+    value = encoder_mode_byte(mode)
+    return (prog.patch("A", ENCODER_MODE_A_ADDR, bytes([value]))
+            + prog.patch_b(ENCODER_MODE_B_ADDR, bytes([value])))
+
+
+def encoder_macro_record(usage: int) -> bytes:
+    """A 16-byte record that presses and releases one keyboard usage."""
+    usage = int(usage) & 0xFF
+    return bytes([0x01, 0x00, ENCODER_MACRO_TAG_DOWN, usage,
+                  ENCODER_MACRO_TAG_UP, usage] + [0] * 10)
+
+
+def read_encoder_macro(prog: "Program", name: str) -> int | None:
+    """The keyboard usage of a single-key macro record, or None.
+
+    Media records (``01 00 01 f1 ...``) do not match; neither do longer
+    macros with several events.
+    """
+    addr = prog.b_addr(ENCODER_RECORDS[name])
+    rec = bytes((prog.get(ENCODER_PHASE, addr + i) or 0)
+                for i in range(ENCODER_MACRO_LEN))
+    if (rec[0:2] == b"\x01\x00" and rec[2] == ENCODER_MACRO_TAG_DOWN
+            and rec[4] == ENCODER_MACRO_TAG_UP and rec[3] == rec[5]
+            and not any(rec[6:])):
+        return rec[3]
+    return None
+
+
+def patch_encoder_macro(prog: "Program", keys) -> int:
+    """Write a single-key macro into each encoder direction.
+
+    ``keys`` maps ``"enc0"/"enc1"`` to a keyboard HID usage (0..0xFF).  This is
+    the only mode in which rotation can send an ordinary keyboard key: the
+    keymap slots 41/49 are not used by rotation, and slot 49 is the press.
+    """
+    n = 0
+    for name, usage in keys.items():
+        if name not in ENCODER_RECORDS:
+            continue
+        addr = prog.b_addr(ENCODER_RECORDS[name])
+        for i, value in enumerate(encoder_macro_record(usage)):
+            cur = prog.get(ENCODER_PHASE, addr + i)
+            if cur is None or cur == value:
+                continue
+            prog.patch(ENCODER_PHASE, addr + i, bytes([value]))
+            n += 1
+    return n
+
+
+def patch_encoder_entry(prog: "Program", name: str, active: bool) -> int:
+    """Mark one encoder function-table entry active or inert."""
+    index = 20 if name == "enc0" else 21
+    addr = prog.b_addr(FUNCTION_TABLE_BASE) + index * FUNCTION_ENTRY_LEN
+    kind = FUNCTION_KIND_ACTIVE if active else FUNCTION_KIND_EMPTY
+    n = 0
+    for offset, value in ((0, FUNCTION_ENTRY_TAG), (1, kind)):
+        cur = prog.get("B", addr + offset)
+        if cur is None or cur == value:
+            continue
+        prog.patch("B", addr + offset, bytes([value]))
+        n += 1
+    if active:
+        target = prog.b_addr(ENCODER_RECORDS[name])
+        for i, value in enumerate(target.to_bytes(3, "little")):
+            offset = 2 + i
+            cur = prog.get("B", addr + offset)
+            if cur is None or cur == value:
+                continue
+            prog.patch("B", addr + offset, bytes([value]))
+            n += 1
+    return n
 
 
 def patch_encoder(prog: "Program", enc) -> int:
@@ -416,7 +572,7 @@ def patch_encoder(prog: "Program", enc) -> int:
         if usage is None:
             continue
         second = 0 if int(num) == 0 else usage
-        a0, a1 = encoder_copy_addrs(name)
+        a0, a1 = encoder_copy_addrs(prog, name)
         for addr, value in ((a0, usage), (a1, second)):
             for k in (0, 1):
                 nv = (value >> (8 * k)) & 0xFF
@@ -432,7 +588,7 @@ def read_encoder(prog: "Program") -> dict:
     """Current encoder codes: usage, config number and second copy."""
     out = {}
     for name in ENCODER_RECORDS:
-        a0, a1 = encoder_copy_addrs(name)
+        a0, a1 = encoder_copy_addrs(prog, name)
 
         def g(addr, _p=prog):
             return _p.get(ENCODER_PHASE, addr) or 0
@@ -442,7 +598,63 @@ def read_encoder(prog: "Program") -> dict:
             "usage": usage,
             "number": encoder_number_of(usage),
             "second": g(a1) | (g(a1 + 1) << 8),
+            "macro": read_encoder_macro(prog, name),
         }
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# function-record table
+# --------------------------------------------------------------------------- #
+def function_slot_label(index: int) -> str:
+    """The physical control a function slot belongs to on this 8-key model."""
+    if 10 <= index <= 17:
+        return f"key {index - 9}"
+    if index == 20:
+        return "encoder 0"
+    if index == 21:
+        return "encoder 1"
+    return "unused"
+
+
+def read_function_table(prog: "Program", phase: str = "B") -> list:
+    """Decode the 22 five-byte index entries of the function-record table.
+
+    Every entry is ``tag kind addr0 addr1 addr2``; ``addr`` is a 24-bit
+    little-endian pointer into the payload at ``0x168``.  An empty entry
+    (kind 0) still points at the current payload start.  The K815 uses slots
+    10..17 for keys 1..8 and 20/21 for the two encoder directions.
+    """
+    entries = []
+    for i in range(FUNCTION_TABLE_ENTRIES):
+        base = prog.b_addr(FUNCTION_TABLE_BASE) + i * FUNCTION_ENTRY_LEN
+        b = [prog.get(phase, base + k) for k in range(FUNCTION_ENTRY_LEN)]
+        if any(v is None for v in b):
+            raise ValueError(f"function table: slot {i} is outside the program")
+        raw_addr = b[2] | (b[3] << 8) | (b[4] << 16)
+        entries.append({
+            "index": i,
+            "slot": function_slot_label(i),
+            "tag": b[0],
+            "kind": b[1],
+            # The upload stream marks active slots with kind 3/4; the firmware
+            # re-encodes them when storing (kind 0, high bit of the 24-bit
+            # address set on inert slots).  Normalise the "inert" view below.
+            "inert_raw": bool(raw_addr & 0x8000),
+            "address": raw_addr & 0x7FFF,
+        })
+    app_format = any(e["kind"] in (FUNCTION_KIND_INTERNAL,
+                                   FUNCTION_KIND_ACTIVE) for e in entries)
+    for e in entries:
+        e["inert"] = (e["kind"] == FUNCTION_KIND_EMPTY) if app_format \
+            else e["inert_raw"]
+    return entries
+
+
+def read_function_record(prog: "Program", address: int,
+                         length: int = 16, phase: str = "B") -> bytes:
+    """The raw record bytes an active table entry points at."""
+    out = bytes((prog.get(phase, address + i) or 0) for i in range(length))
     return out
 
 
@@ -452,7 +664,7 @@ def read_encoder(prog: "Program") -> dict:
 def read_keymap(prog: "Program", phase: str = "A", base: int | None = None) -> bytes:
     """Read the 160-byte keymap of one phase (phase A by default)."""
     if base is None:
-        base = KEYMAP_BASE if phase == "A" else KEYMAP_BASE_B
+        base = KEYMAP_BASE if phase == "A" else prog.b_addr(KEYMAP_BASE_B)
     return bytes((prog.get(phase, base + i) or 0) for i in range(KEYMAP_LEN))
 
 
@@ -460,10 +672,26 @@ def read_keymap(prog: "Program", phase: str = "A", base: int | None = None) -> b
 PRESET_VERSION = 3
 
 
-def preset_from_program(prog: "Program", template: str | None = None) -> dict:
-    """Decode the whole configurable state into a browser-compatible preset."""
+def preset_from_program(prog: "Program", template: str | None = None,
+                        keymap_phase: str = "A",
+                        keymap_base: int | None = None) -> dict:
+    """Decode the whole configurable state into a browser-compatible preset.
+
+    A captured session keeps two copies of the keymap (phase A at 0x20, phase B
+    at 0x49).  The default reads phase A, which is what a template carries.  A
+    device dump is a single memory image and must use phase B: the later header
+    write overlaps 0x20..0x21 and the phase-B keymap overlaps 0x49..0xE8, so
+    only the phase-B copy survives intact.
+    """
     led = read_led(prog)
-    km = read_keymap(prog, "A", KEYMAP_BASE)
+    km = read_keymap(prog, keymap_phase, keymap_base)
+    enc_numbers = {}
+    enc_keys = {}
+    for name, info in read_encoder(prog).items():
+        if info["macro"] is not None:
+            enc_keys[name] = info["macro"]
+        elif info["number"] >= 0:
+            enc_numbers[name] = info["number"]
     preset = {
         "version": PRESET_VERSION,
         "keymap": list(km),
@@ -478,9 +706,10 @@ def preset_from_program(prog: "Program", template: str | None = None) -> dict:
             "rgbEn": led["rgb_en"],
         },
         "switches": read_switches(prog),
-        "encoder": {name: info["number"]
-                    for name, info in read_encoder(prog).items()},
+        "encoder": enc_numbers,
     }
+    if enc_keys:
+        preset["encoderKeys"] = enc_keys
     if template:
         preset["template"] = os.path.basename(template)
     for sid, _label, idx in SLOTS:
@@ -495,7 +724,8 @@ def apply_preset(prog: "Program", preset: dict) -> dict:
     as webhid/app.js does; a template whose phases disagree therefore gets one
     consistent table.  Returns per-section change counters.
     """
-    counts = {"keymap": 0, "led": 0, "switches": 0, "encoder": 0}
+    counts = {"keymap": 0, "led": 0, "switches": 0, "encoder": 0,
+              "encoderKeys": 0, "encoderMode": 0}
 
     km = bytearray(read_keymap(prog, "A", KEYMAP_BASE))
     touched = False
@@ -511,7 +741,7 @@ def apply_preset(prog: "Program", preset: dict) -> dict:
                 touched = True
     if touched:
         counts["keymap"] = (prog.patch("A", KEYMAP_BASE, bytes(km))
-                            + prog.patch("B", KEYMAP_BASE_B, bytes(km)))
+                            + prog.patch_b(KEYMAP_BASE_B, bytes(km)))
 
     led = preset.get("led")
     if isinstance(led, dict):
@@ -543,7 +773,205 @@ def apply_preset(prog: "Program", preset: dict) -> dict:
     if isinstance(enc, dict):
         counts["encoder"] = patch_encoder(prog, enc)
 
+    # A keyboard macro in the rotation record is the working way to make the
+    # encoder send ordinary keys.  It implies the media-mode byte and active
+    # function-table entries; the record itself carries the key.
+    enc_keys = preset.get("encoderKeys")
+    if isinstance(enc_keys, dict) and enc_keys:
+        counts["encoderMode"] = patch_encoder_mode(prog, ENCODER_MODE_MEDIA)
+        counts["encoderKeys"] = patch_encoder_macro(prog, enc_keys)
+        for name in enc_keys:
+            if name in ENCODER_RECORDS:
+                counts["encoderKeys"] += patch_encoder_entry(prog, name, True)
+
+    mode = preset.get("encoderMode")
+    if isinstance(mode, int):
+        counts["encoderMode"] = patch_encoder_mode(prog, mode)
+
     return counts
+
+
+# --------------------------------------------------------------------------- #
+# device memory dumps
+# --------------------------------------------------------------------------- #
+# The browser page (webhid/app.js, "Dump") writes this shape, and so does
+# `k815ctl.py dump --json`; either file can be converted into a preset.
+DUMP_KIND = "k815-memory-dump"
+DUMP_VERSION = 1
+
+
+def make_dump(address: int, data: bytes, vendor_id: int | None = None,
+              product_id: int | None = None,
+              product: str | None = None,
+              config_base: int | None = None,
+              record_base: int | None = None) -> dict:
+    """Build a WebHID-compatible dump record for a memory image."""
+    data = bytes(data)
+    record = {
+        "version": DUMP_VERSION,
+        "kind": DUMP_KIND,
+        "created": datetime.datetime.now().isoformat(timespec="seconds"),
+        "address": address,
+        "length": len(data),
+        "reportId": REPORT_ID,
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "memory": {},
+    }
+    if config_base is not None:
+        record["configBase"] = config_base
+    if record_base is not None:
+        record["recordBase"] = record_base
+    if vendor_id is not None:
+        record["vendorId"] = f"0x{vendor_id:04X}"
+    if product_id is not None:
+        record["productId"] = f"0x{product_id:04X}"
+    if product:
+        record["product"] = product
+    for off in range(0, len(data), 16):
+        record["memory"][f"0x{address + off:04X}"] = list(data[off:off + 16])
+    return record
+
+
+def read_dump(path: str, base: int | None = None) -> tuple:
+    """Load a dump file and return ``(image, address, record)``.
+
+    Accepts the JSON written by the WebHID page and by ``dump --json``, or a
+    raw binary image as written by ``dump --out`` (pass ``base`` for the
+    address of its first byte; it defaults to 0).  Gaps, a length mismatch and
+    a bad sha256 are rejected instead of being silently filled with zeros.
+    """
+    raw = open(path, "rb").read()
+    if not raw.lstrip().startswith(b"{"):
+        return raw, 0 if base is None else base, {}
+
+    try:
+        record = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as e:
+        raise ValueError(f"{path}: not a JSON dump: {e}")
+    if not isinstance(record, dict):
+        raise ValueError(f"{path}: expected a JSON object")
+
+    # A `backup --from-device` artifact carries the same image under
+    # deviceMemory {base, length, hex}; accept it as a dump too.
+    device_memory = record.get("deviceMemory")
+    if record.get("kind") != DUMP_KIND and isinstance(device_memory, dict) \
+            and "hex" in device_memory:
+        try:
+            data = bytes.fromhex(device_memory["hex"])
+        except (TypeError, ValueError):
+            raise ValueError(f"{path}: deviceMemory.hex is not hex")
+        address = int(device_memory.get("base", 0))
+        if base is not None:
+            address = base
+        return data, address, record
+    if record.get("kind") != DUMP_KIND:
+        raise ValueError(f"{path}: not a {DUMP_KIND} record")
+
+    address = int(record.get("address", 0))
+    length = int(record.get("length") or 0)
+    memory = record.get("memory")
+    if not isinstance(memory, dict) or not memory:
+        raise ValueError(f"{path}: no memory map")
+    if length <= 0:
+        length = max(int(k, 0) for k in memory) + len(
+            next(iter(memory.values()))) - address
+
+    image = bytearray(length)
+    covered = bytearray(length)
+    for key, values in memory.items():
+        start = int(key, 0) - address
+        for i, value in enumerate(values):
+            off = start + i
+            if not 0 <= off < length:
+                raise ValueError(f"{path}: byte 0x{address + off:04X} is "
+                                 f"outside address/length")
+            image[off] = int(value) & 0xFF
+            covered[off] = 1
+    missing = [address + i for i, ok in enumerate(covered) if not ok]
+    if missing:
+        raise ValueError(f"{path}: dump has {len(missing)} gap(s), first at "
+                         f"0x{missing[0]:04X}")
+    if base is not None:
+        address = base
+
+    sha = record.get("sha256")
+    if sha:
+        got = hashlib.sha256(bytes(image)).hexdigest()
+        if got != sha:
+            raise ValueError(f"{path}: sha256 mismatch ({got[:12]} != {sha[:12]})")
+    return bytes(image), address, record
+
+
+def program_from_image(image: bytes, address: int = 0) -> "Program":
+    """A read-only Program view over a device memory image.
+
+    The image must cover the staging area ``0x0000..0x018F``.  A full dump of
+    the active ``0x00E0`` layout is longer (up to ``0x0267``); keep all bytes,
+    because the keymap and function records live above ``0x018F`` there.
+    Both phases see the same bytes, which is correct for a dump: it is one
+    memory, not the two-phase write stream.  Never pass the result to
+    `emit()`; use `preset_from_image()` to decode it.
+    """
+    image = bytes(image)
+    if not image:
+        raise ValueError("the dump is empty")
+    if address != 0 or len(image) < IMAGE_LEN:
+        end = address + len(image) - 1
+        raise ValueError(f"a dump must cover at least 0x0000..0x{IMAGE_LEN - 1:04X}, "
+                         f"got 0x{address:04X}..0x{end:04X}")
+    data = image
+    prog = Program()
+    prog.items.append(Block(addr=0, length=len(data), data=data, phase="A"))
+    prog.items.append(Block(addr=0, length=len(data), data=data, phase="B"))
+    return prog
+
+
+def preset_from_image(image: bytes, address: int = 0,
+                      template: str | None = None,
+                      config_base: int = 0x0001,
+                      record_base: int = 0x0168) -> dict:
+    """Decode a device memory image into a preset (keymap from phase B).
+
+    ``config_base`` is the phase-B start reported by the device (0x0001 in the
+    staging layout, 0x00E0 on a burned unit).  ``record_base`` is the first
+    function-record byte (0x0168 staging, 0x0248 on the 0x00E0 layout).
+    """
+    prog = program_from_image(image, address)
+    prog.base = config_base
+    prog.record_base = record_base
+    return preset_from_program(prog, template, keymap_phase="B",
+                               keymap_base=KEYMAP_BASE_B)
+
+
+# On real hardware the active configuration is stored in a bank at 0x0118, not
+# in the staging area the application writes (0x0001).  The bank is the phase-B
+# image shifted by 0x117; only the record payload is one byte lower (0x280,
+# because the bank has a two-byte `CF 00` separator where the staging image has
+# a single zero).  Verified on one K815 with a full memory read.
+STORED_BASE = 0x0118
+STORED_LEN = 0x187          # 0x0118..0x029E
+
+
+def stored_to_staging(image: bytes, address: int = STORED_BASE) -> bytes:
+    """Map the stored config bank onto the 0x0001 staging layout."""
+    bank = bytes(image)
+    if address != STORED_BASE:
+        raise ValueError(f"a stored bank starts at 0x{STORED_BASE:04X}, "
+                         f"got 0x{address:04X}")
+    if len(bank) < STORED_LEN:
+        raise ValueError(f"a stored bank is 0x{STORED_LEN:X} bytes, "
+                         f"got 0x{len(bank):X}")
+    img = bytearray(b"\xFF" * IMAGE_LEN)
+    img[0x01:0x167] = bank[0x00:0x166]      # header, keymap, LED, index
+    img[0x167] = 0x00                        # single separator
+    img[0x168:0x187] = bank[0x168:0x187]    # function records
+    return bytes(img)
+
+
+def preset_from_stored(image: bytes, address: int = STORED_BASE,
+                       template: str | None = None) -> dict:
+    """Decode the stored (active) config bank of a real device."""
+    return preset_from_image(stored_to_staging(image, address), 0, template)
 
 
 def parse_report(b: bytes) -> Frame | None:
@@ -553,16 +981,88 @@ def parse_report(b: bytes) -> Frame | None:
                  data=b[6], ln=b[7], flag=b[14], raw=bytes(b))
 
 
+MIN_DELAY_MS = 20
+
+
+def capture_delays(capture: str, frames: list,
+                   min_delay_ms: int = MIN_DELAY_MS) -> list:
+    """Measure the pauses of `frames` in a capture (milliseconds).
+
+    Returns ``[[frame index, ms], ...]``; the index is the frame the pause goes
+    *before*.  Empty when the capture is missing or does not contain the
+    emitted session.  Used by the CLI and `tools/build_webhid.py` so a replay
+    reproduces the vendor application's timing, not just its bytes.
+    """
+    records = []
+    try:
+        for raw, t in capture_records(capture):
+            if t is not None:
+                records.append((raw, t))
+    except OSError:
+        return []
+
+    n = len(frames)
+    start = None
+    if n:
+        for i in range(len(records) - n, -1, -1):
+            if all(records[i + k][0] == frames[k] for k in range(n)):
+                start = i
+                break
+    if start is None:
+        # A patched session no longer matches byte for byte (the data bytes
+        # differ), so fall back to matching the frame structure: opcode,
+        # subcommand, index and address are unchanged by a preset patch.
+        for i in range(len(records) - n, -1, -1):
+            if all(records[i + k][0][:6] == frames[k][:6] for k in range(n)):
+                start = i
+                break
+    if start is None:
+        return []
+
+    delays = []
+    for i in range(1, n):
+        ms = int(round((records[start + i][1] - records[start + i - 1][1]) * 1000.0))
+        if ms > min_delay_ms:
+            delays.append([i, ms])
+    return delays
+
+
+def _open_capture(path: str):
+    """Open a capture, transparently handling the gzipped test fixture."""
+    if path.endswith(".gz"):
+        return gzip.open(path, "rt", encoding="utf-8")
+    return open(path, encoding="utf-8")
+
+
+def capture_records(path: str) -> list:
+    """``(raw, timestamp)`` for every 16-byte SET report, in order.
+
+    ``timestamp`` is ``None`` when the capture does not store one.  Malformed
+    lines are skipped, so a truncated capture still yields its valid prefix.
+    """
+    out = []
+    with _open_capture(path) as fh:
+        for line in fh:
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if rec.get("kind") != "SET" or "raw" not in rec:
+                continue
+            try:
+                raw = bytes.fromhex(rec["raw"])
+            except ValueError:
+                continue
+            if len(raw) != REPORT_LEN:
+                continue
+            t = rec.get("t")
+            out.append((raw, float(t) if t is not None else None))
+    return out
+
+
 def _set_reports(path: str) -> list:
     """Every 16-byte SET_REPORT payload from a capture, in order."""
-    out = []
-    for line in open(path):
-        rec = json.loads(line)
-        if rec.get("kind") == "SET" and "raw" in rec:
-            raw = bytes.fromhex(rec["raw"])
-            if len(raw) == REPORT_LEN:
-                out.append(raw)
-    return out
+    return [raw for raw, _t in capture_records(path)]
 
 
 def last_session(reports: list) -> list:
@@ -626,6 +1126,12 @@ def program_from_reports(reports: list) -> tuple[Program, bytearray]:
             end_block()
             prog.items.append(f)
     end_block()
+    bblocks = [it for it in prog.items if isinstance(it, Block) and it.phase == "B"]
+    if bblocks:
+        prog.base = min(it.addr for it in bblocks)
+        prog.record_base = min(
+            (it.addr for it in bblocks if it.addr >= prog.base + 0x166),
+            default=prog.base + 0x167)
     return prog, mem
 
 
@@ -649,6 +1155,50 @@ def emit(program: Program) -> list:
         else:
             out.append(bytes(it.raw))
     return out
+
+
+def rebase_phase_b(prog: "Program", new_base: int) -> int:
+    """Move a captured phase-B session from one config base to another.
+
+    A real device reports its base in the info answer; when the burning tool
+    changes that base (e.g. 0x0118 -> 0x00E0), the addresses and the two
+    pointers in the phase-B header must move by the same delta.  The phase-A
+    addresses (0x20, 0xD0) are fixed; the service block gets the new base.
+    Returns the applied delta.
+    """
+    old_base = prog.base
+    delta = new_base - old_base
+    if delta == 0:
+        return 0
+    for it in prog.items:
+        if isinstance(it, Block) and it.phase == "B":
+            it.addr += delta
+            for f in it.trailer:
+                f.addr += delta
+        elif isinstance(it, Frame) and it.op == OP_MEM \
+                and it.sub in (SUB_IDLE, SUB_READ) and it.addr == old_base:
+            # The app verifies the service header at the config base; move it
+            # with the base and rebuild the verbatim raw frame.
+            it.addr = new_base
+            it.raw = it.build().ljust(REPORT_LEN, b"\0")
+    # Header pointers: keymap base at +0x48, function table at +0xF8.
+    prog.patch("B", new_base + 0x1C,
+               (new_base + 0x48).to_bytes(2, "little"))
+    prog.patch("B", new_base + 0x1E,
+               (new_base + 0xF8).to_bytes(2, "little"))
+    # Phase-A service block stores the config base at 0xD2..0xD3.
+    prog.patch("A", 0xD2, new_base.to_bytes(2, "little"))
+    # Function-table entries carry 24-bit payload addresses.
+    for k in range(FUNCTION_TABLE_ENTRIES):
+        a = new_base + (FUNCTION_TABLE_BASE - 0x0001) + k * FUNCTION_ENTRY_LEN
+        b = [prog.get("B", a + i) or 0 for i in range(FUNCTION_ENTRY_LEN)]
+        old = b[2] | (b[3] << 8) | (b[4] << 16)
+        new = old + delta
+        prog.patch("B", a + 2,
+                   bytes([new & 0xFF, (new >> 8) & 0xFF, (new >> 16) & 0xFF]))
+    prog.base = new_base
+    prog.record_base += delta
+    return delta
 
 
 def verify(path: str) -> tuple[bool, int, int, int | None]:

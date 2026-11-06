@@ -153,6 +153,30 @@ class K815Device(threading.Thread):
         # 16-bit device value the app expects to read back at 0xD0
         self.dev_value = 0x0001
 
+    def seed_session(self, frames):
+        """Replay the reference session's writes into the simulated memory.
+
+        A real device answers reads with its stored configuration, so the
+        virgin image must carry the template (switches, LED header, both
+        keymap phases, encoder records).  Only the write-byte and erase-sector
+        commands are applied, the ones the emulator also honours live.
+        """
+        n = 0
+        for f in frames:
+            if len(f) < 8 or f[0] != FIRST_BYTE or f[1] != OPCODE:
+                continue
+            sub, idx = f[2], f[3]
+            addr = f[4] | (f[5] << 8)
+            if sub == 0x03:                                   # write byte
+                self.mem[(addr + idx) & 0xFFFF] = f[6]
+                n += 1
+            elif sub == 0x81:                                 # erase sector
+                base = addr & 0xFFE0
+                for a in range(base, min(base + 0x20, MEM_SIZE)):
+                    self.mem[a] = 0xFF
+        if n:
+            log(f"[{self.tag}] seeded {n} bytes from the reference session")
+
     def _answer(self, rnum, rtype):
         buf = bytearray(HID_REPORT_LEN)
         buf[0] = FIRST_BYTE
@@ -302,6 +326,20 @@ class K815Device(threading.Thread):
 # --------------------------------------------------------------------------- #
 # Capture sink
 # --------------------------------------------------------------------------- #
+def template_frames(capture_path):
+    """The frame stream of the reference session: the stored configuration."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import k815_proto as P
+        prog, _ = P.program_from_capture(capture_path)
+        return list(P.emit(prog))
+    except Exception as e:                      # seeding is best-effort
+        log(f"template seed skipped: {e}")
+        return []
+
+
 class Capture:
     def __init__(self, path):
         self.path = path
@@ -335,12 +373,31 @@ def main():
     ap.add_argument("--device-name", default="MKESPN K815")
     ap.add_argument("--report-id", type=lambda s: int(s, 0), default=0x07,
                     help="HID report ID (0 = unnumbered reports)")
+    ap.add_argument("--dev-value", type=lambda s: int(s, 0), default=0x0001,
+                    help="16-bit device value returned in the info answer "
+                         "(the config base the app writes phase B to)")
     ap.add_argument("--seed-ini",
                     default="extracted/app/config/config.ini",
                     help="config.ini to seed the simulated keymap from")
+    ap.add_argument("--seed-capture", default=None,
+                    help="reference session whose writes seed the simulated "
+                         "memory (default: the hardware capture)")
     ap.add_argument("--pidfile", default=None,
                     help="write the emulator PID here (for safe automation)")
     args = ap.parse_args()
+
+    seed_capture = args.seed_capture
+    if seed_capture is None:
+        try:
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import fixtures
+            seed_capture = fixtures.hardware_capture()
+        except Exception as e:
+            log(f"template seed skipped: {e}")
+            seed_capture = None
+    frames = template_frames(seed_capture) if seed_capture else []
 
     if args.pidfile:
         with open(args.pidfile, "w") as fh:
@@ -359,6 +416,8 @@ def main():
     for page in pages:
         dev = K815Device(page, args, cap)
         dev.seed(args.seed_ini)
+        dev.seed_session(frames)
+        dev.dev_value = args.dev_value
         dev.start()
         devs.append(dev)
 

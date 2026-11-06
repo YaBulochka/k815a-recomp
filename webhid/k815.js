@@ -1,12 +1,18 @@
-// WebHID driver for the MKESPN K815 (report ID 7, 16-byte feature reports).
+// WebHID driver for the MKESPN K815 (report ID 7; 16-byte internal frames,
+// 8-byte feature reports on real hardware, 16 on the uhid emulator).
 // Protocol reference: ../PROTOCOL.md
 
 export const VID = 0x30fa;
-export const PID = 0x2350;
+// The K815 family: the model in this repository reports 0x2350, the other two
+// PIDs belong to the same 8-key + encoder board (see tools/udev/*.rules).
+export const PIDS = [0x2350, 0x2130, 0x2330];
+export const PID = PIDS[0];
 export const WRITE_USAGE_PAGE = 0xff01;
+export const READ_USAGE_PAGE = 0xff00;
 
-// Slot table: which byte of the 160-byte keymap belongs to which physical key.
-// keymap index = 8 * column + row (see PROTOCOL.md).
+// Slots are named "Encoder key A/B": they are the matrix cells 1_5 / 1_6 of
+// KBconfig.ini, a different field from the encoder *rotation* media functions
+// of the Encoder card (USCROLL0/USCROLL1).
 export const SLOTS = [
   { id: "k1", label: "Key 1", idx: 8 },
   { id: "k2", label: "Key 2", idx: 16 },
@@ -16,8 +22,8 @@ export const SLOTS = [
   { id: "k6", label: "Key 6", idx: 17 },
   { id: "k7", label: "Key 7", idx: 25 },
   { id: "k8", label: "Key 8", idx: 33 },
-  { id: "enc1", label: "Encoder A", idx: 41 },
-  { id: "enc2", label: "Encoder B", idx: 49 },
+  { id: "enc1", label: "Encoder key A", idx: 41 },
+  { id: "enc2", label: "Encoder key B", idx: 49 },
 ];
 
 // Common HID keyboard usages for the dropdowns. 0xff = "no function".
@@ -54,6 +60,54 @@ export function decodeBlob(b64) {
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
+}
+
+// One memory-read command: `07 18 05 00 <addr lo> <addr hi> ...` plus the
+// report id. The answer arrives in a follow-up GET_FEATURE, byte 1 (see
+// PROTOCOL.md and tools/k815ctl.py, `read_range`).
+export function readReport(addr, reportId = 0x07) {
+  const f = new Uint8Array(16);
+  f[0] = reportId;
+  f[1] = 0x18;                 // memory command
+  f[2] = 0x05;                 // load read address
+  f[3] = 0x00;                 // index 0: the byte at the address itself
+  f[4] = addr & 0xff;
+  f[5] = (addr >> 8) & 0xff;
+  return f;
+}
+
+// The firmware occasionally answers a memory read with a byte that belongs to
+// another address (it happened once for a block of the palette and for keymap
+// slot 49). A repeated read of the same byte costs one extra transfer, so every
+// byte is read until two answers agree; when three or more samples disagree,
+// the value seen most often wins (ties go to the latest answer).
+export function pickStable(values) {
+  if (!values.length) return 0xff;
+  const counts = new Map();
+  for (const v of values) counts.set(v, (counts.get(v) || 0) + 1);
+  let best = values[values.length - 1];
+  let bestN = 0;
+  for (const [v, n] of counts) {
+    if (n >= bestN) { best = v; bestN = n; }
+  }
+  return best;
+}
+
+// Payload size the device declares for a feature report.  The real K815
+// declares seven payload bytes for report 7 (8 bytes with the id), while the
+// uhid emulator declares fifteen; WebHID rejects a report of the wrong size.
+export function featurePayloadBytes(device, reportId = 0x07) {
+  for (const c of device.collections || []) {
+    for (const r of c.featureReports || []) {
+      if ((r.reportId ?? 0) !== reportId) continue;
+      let bits = 0;
+      for (const it of r.items || []) {
+        bits += (it.reportCount || 0) * (it.reportSize || 0);
+      }
+      if (bits > 0) return Math.ceil(bits / 8);
+    }
+  }
+  return null;
 }
 
 export function patchKeymap(frames, keymap, session) {
@@ -140,6 +194,74 @@ export function patchEncoder(frames, enc, session) {
   return n;
 }
 
+// A single-key keyboard macro in a rotation record.  This is the only mode
+// that makes the encoder send an ordinary key: rotation does not use the
+// keymap slots, and slot 49 is the encoder press.
+export function encoderMacroRecord(usage) {
+  usage &= 0xff;
+  return [0x01, 0x00, 0x86, usage, 0x06, usage,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+}
+
+export function encoderMediaRecord(number) {
+  const fn = ENCODER_FUNCTIONS.find((f) => f[1] === number);
+  if (!fn) return null;
+  const usage = fn[2];
+  const second = number === 0 ? 0 : usage;
+  return [0x01, 0x00, 0x01, 0xf1, 0x81, 0xfa,
+          usage & 0xff, usage >> 8,
+          0x01, 0xf1, 0x01, 0xfa,
+          second & 0xff, second >> 8, 0, 0];
+}
+
+// Write a full 16-byte rotation record, the media-mode byte and the active
+// function-table entry.  `rotation` is
+//   { mode: "media", enc0: number, enc1: number } or
+//   { mode: "keys",  enc0: usage,  enc1: usage  }.
+export function patchEncoderRotation(frames, rotation, session) {
+  const records = session.encRecordTargets || {};
+  const entries = session.entryTargets || {};
+  const modes = session.modeTargets || {};
+  const recordBase = session.recordBase ?? 0x0168;
+  let n = 0;
+  const put = (targets, addr, value) => {
+    const i = targets[addr];
+    if (i === undefined) return;
+    const o = i * 16 + 6;
+    value &= 0xff;
+    if (frames[o] === value) return;
+    frames[o] = value;
+    n++;
+  };
+
+  for (const [name, index] of [["enc0", 20], ["enc1", 21]]) {
+    const value = rotation[name];
+    const rec = rotation.mode === "keys"
+      ? encoderMacroRecord(value)
+      : encoderMediaRecord(value);
+    if (!rec) continue;
+    const logical = 0x0168 + (name === "enc1" ? 0x10 : 0);
+    for (let i = 0; i < rec.length; i++) {
+      put(records, logical + i, rec[i]);
+    }
+
+    // Entry: tag 0x07, kind 0x04, 24-bit record address.
+    const entry = 0xf9 + index * 5;
+    const physical = recordBase + (name === "enc1" ? 0x10 : 0);
+    put(entries, entry, 0x07);
+    put(entries, entry + 1, 0x04);
+    put(entries, entry + 2, physical & 0xff);
+    put(entries, entry + 3, (physical >> 8) & 0xff);
+    put(entries, entry + 4, (physical >> 16) & 0xff);
+  }
+
+  // The macro records above need the encoder's media-mode byte; the records
+  // themselves contain no Consumer usage, so no media function fires.
+  put(modes, 0x10, 0x44);
+  put(modes, 0x21, 0x44);
+  return n;
+}
+
 // LED palette + effect live in the phase-B header (see PROTOCOL.md).
 export const LED_LAYOUT = {
   paletteBase: 0x02,
@@ -208,10 +330,59 @@ export function isWriteInterface(device) {
     (c) => c.usagePage === WRITE_USAGE_PAGE);
 }
 
-export async function pickDevice() {
-  const devices = await navigator.hid.requestDevice({
-    filters: [{ vendorId: VID, productId: PID }],
+// Which vendor collection of a device this page should talk to. The vendor
+// application opens 0xFF01 for writing and 0xFF00 for reading; prefer 0xFF01.
+export function vendorUsagePage(device) {
+  const cols = device.collections || [];
+  for (const page of [WRITE_USAGE_PAGE, READ_USAGE_PAGE]) {
+    if (cols.some((c) => c.usagePage === page)) return page;
+  }
+  return null;
+}
+
+// A readable description of a device for the log when the chooser returns
+// something unexpected (other models / other collections).
+export function describeDevice(device) {
+  const cols = (device.collections || []).map((c) => {
+    const reportIds = (c.featureReports || []).map((r) => r.reportId);
+    return `usagePage=0x${(c.usagePage >>> 0).toString(16)} `
+      + `usage=0x${(c.usage || 0).toString(16)} `
+      + `featureReports=[${reportIds.map((r) => "0x" + r.toString(16)).join(", ")}]`;
   });
-  if (!devices.length) return null;
-  return devices.find(isWriteInterface) || devices[0];
+  const vid = device.vendorId.toString(16).toUpperCase().padStart(4, "0");
+  const pid = device.productId.toString(16).toUpperCase().padStart(4, "0");
+  return `${device.productName || "HID device"} (${vid}:${pid})`
+    + (cols.length ? `: ${cols.join("; ")}` : ": no collections");
+}
+
+// Pick the 0xFF01 collection (then 0xFF00) out of a device list. Never falls
+// back to devices[0] silently: an unrelated collection would swallow the
+// writes.
+export function chooseDevice(devices) {
+  const list = devices || [];
+  for (const page of [WRITE_USAGE_PAGE, READ_USAGE_PAGE]) {
+    const candidates = list.filter((d) => (d.collections || [])
+      .some((c) => c.usagePage === page));
+    if (!candidates.length) continue;
+    // The vendor emulator is called "MKESPN K815 (0xFF01)"; a real unit may
+    // report the generic "USB Keyboard".  Prefer the vendor name when both
+    // are present (the end-to-end test runs next to the real keyboard).
+    const device = candidates.find((d) => /MKESPN/i.test(d.productName || ""))
+      || candidates[0];
+    return { device, usagePage: page };
+  }
+  return {
+    device: null,
+    usagePage: null,
+    error: list.length
+      ? "none of the selected devices has a vendor collection (usage page 0xFF01 or 0xFF00)"
+      : "no device selected",
+    details: list.map(describeDevice),
+  };
+}
+
+export async function pickDevice() {
+  const filters = PIDS.map((productId) => ({ vendorId: VID, productId }));
+  const devices = await navigator.hid.requestDevice({ filters });
+  return chooseDevice(devices);
 }

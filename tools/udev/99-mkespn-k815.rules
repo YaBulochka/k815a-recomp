@@ -29,3 +29,10 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="30fa", ATTRS{idProduct}=="2350", TAG+="ua
 
 # Fallback without systemd-logind ACLs: uncomment and put yourself in plugdev.
 #SUBSYSTEM=="hidraw", ATTRS{idVendor}=="30fa", ATTRS{idProduct}=="2350", MODE="0660", GROUP="plugdev"
+
+# USB device node (/dev/bus/usb/BBB/DDD).  The WebHID helper resets the whole
+# device after a write with USBDEVFS_RESET, because this firmware only applies
+# a new keymap after a real USB re-enumeration.  Closing the HID handle is not
+# enough.  TAG+="uaccess" covers the logged-in desktop user; the group is a
+# fallback for systems without logind ACLs (put yourself in plugdev).
+SUBSYSTEM=="usb", ATTR{idVendor}=="30fa", ATTR{idProduct}=="2350", MODE="0660", GROUP="plugdev", TAG+="uaccess"

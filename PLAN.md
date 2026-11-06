@@ -30,7 +30,7 @@ What this gives without hardware:
 * the exact PID and the presence of a second interface (0xFF00/0xFF01);
 * the real length of a feature report;
 * the contents of `0xC0..0xCF` and of the whole `0xD0..` region;
-* the encoding of macros and LED effects.
+* the encoding of LED effects and the factory macro shortcuts.
 
 How it works: under Wine the application opens the device and reads the config,
 the user changes a setting and presses Apply, and the emulator records the whole
@@ -56,17 +56,41 @@ and "after" gives a ready map: what is written and at which address.
 - [x] The structure of the `0xF9..` region is worked out: `0xF9..0x166` is an index of
       22 five-byte entries `07 <kind> <addr0..2>`, `0x167` is a zero separator, and the
       payload after it holds 8-/16-byte records. Entry 20 belongs to `USCROLL0`, entry 21
-      to `USCROLL1`; their `kind` is `0x04` for a Consumer function and `0x03` for an
-      internal one, the other 20 entries are inert stubs with `kind = 0x00`. `addr0..2` is
+      to `USCROLL1`; `kind = 0x04` marks an active record (Consumer function, macro
+      shortcut, media-mode encoder) and `0x03` an internal one, the other 20 entries are
+      inert stubs with `kind = 0x00`. `addr0..2` is
       the phase-B address of the record of that entry, so the byte that looked constant
       (`0x01`) is the middle address byte: with the first number of `USCROLL0` equal to `4`
       the second record moves to `0x170` and its entry follows. The payload is not of a
-      fixed length — a light-control/system/special/macro assignment appends 8 zero bytes
-      per key, which moves every address (the end of phase B was seen at `0x187`..`0x1A7`).
-      `UFN_F*`, the function numbers of `USCROLL*`, `MACRO_MAP*` and `ShortcutMacro.dat`
-      leave the index alone; the string macros are played by the application itself.
-- [~] Still to work out: why the index has exactly 22 entries, and what the `0x07` at
-      offset 0 of an entry means.
+      fixed length — a light-control/system/special assignment appends 8 zero bytes
+      per key, and a macro assignment appends a 16-byte shortcut record, which moves
+      every address (the end of phase B was seen at `0x187`..`0x1C7`).
+      `UFN_F*`, the function numbers of `USCROLL*` and `MACRO_MAP*` leave the index
+      alone by themselves; what changes it is the key assignment: a macro key
+      activates its slot and inserts a record.
+- [~] Why the index has exactly 22 entries: the measured part is 20 non-encoder
+      slots plus the two encoder directions (20/21), and the K815 uses slots
+      10..17 for keys 1..8. That the other ten slots belong to a larger model is
+      the most likely explanation but is not verified on another device.
+- [~] Still open: what the constant `0x07` at offset 0 of an entry means. It is a
+      tag/version present in every entry, including the inert ones.
+
+### Macros (done for the factory group)
+
+- [x] Make the Macro category usable: `macro/macroGrp.ini` with `macGrpNum=1` and
+      `0=ShortcutMacro`, plus `ShortcutMacro.dat` in the same `macro/` directory.
+- [x] Key assignment: `0xAF` for key 1 and `0xB8..0xBE` for keys 2..8; the value is
+      per key slot, not per macro. `MACROGRP_MAP`/`MACRO_MAP` slots 10..17 store the
+      group and macro index.
+- [x] The function table: key 1 activates entry 10, key 2 entry 11, … key 8 entry 17;
+      each macro key adds a 16-byte record and shifts the encoder records.
+- [x] Record content for the five factory macros: the usage bytes match
+      Cut/Copy/Paste/Boss/SelectAll = Ctrl+X / Ctrl+C / Ctrl+V / Win+D / Ctrl+A.
+      The modifier mapping is inferred; the record layout is in `PROTOCOL.md`.
+- [x] Regression fixture `tests/fixtures/macro5.jsonl.gz` (five keys) and checks in
+      `tools/selftest_cli.py`; `k815ctl show` prints the function table.
+- [~] Still open: the fixed bytes of the record, text (non-shortcut) macros (a custom
+      "Z" macro produced no record), custom macro groups. Verify on hardware.
 
 ### Stage 3. Our own tool
 
@@ -76,7 +100,7 @@ and "after" gives a ready map: what is written and at which address.
       `switches`/`encoder`/`preset`/`apply`/`show`/`backup`/`restore`/`selftest`.
 - [x] Verification on the emulator: `selftest` accepts 663/663 reports byte for byte.
 - [x] `apply` from a human-readable preset: keys, lighting, switches, encoder media
-      functions. Macros are not uploaded and do not enter the preset.
+      functions. Macro assignment is understood but not in the preset format yet.
 - [x] A WebHID version for cross-platform use: `webhid/` (keys plus lighting).
 
 ### Stage 3b. CLI parity and a safety net before hardware (done)
@@ -87,9 +111,15 @@ and "after" gives a ready map: what is written and at which address.
 - [x] `backup` / `restore` — an artifact with the exact frame stream and a `sha256`;
       a tampered or truncated file is rejected.
 - [x] `tools/selftest_cli.py` — offline checks with no hardware and no browser
-      (35/35): capture round-trip, switches, encoder, preset, a WebHID-style
+      (55/55): capture round-trip, switches, encoder, preset, a WebHID-style
       export applying like native edits, the generated effect catalogue,
-      backup/restore.
+      backup/restore, a dump (page JSON, raw binary, or a
+      `backup --from-device` image) decoding into the same preset, and the
+      22-entry function table with the five macro records.
+- [x] `dump --json` / `dump --preset` and `preset --from-dump`: a device dump
+      (page JSON, raw binary, or `backup --from-device` memory) decodes into the
+      same preset format; bad sha256/gaps are rejected; the keymap is taken from
+      the phase-B copy at `0x49`.
 - [x] `tools/udev/99-mkespn-k815.rules` + `tools/install_udev.sh` — access to
       `/dev/hidraw*` of the `0xFF01` interface for the session user.
 - [x] A run through the emulator: `apply` and `restore` produced frame for frame what
@@ -117,7 +147,9 @@ and "after" gives a ready map: what is written and at which address.
 - [x] `tools/run_all.sh` — one command for the whole suite: syntax checks plus
       both offline selftests, and with `--full` the end-to-end test as well
       (6/6 stages pass on this machine).
-- [ ] Macros in WebHID (the device does not receive them through this session).
+- [ ] Macro editing in WebHID/CLI. The protocol is recovered (per-key markers,
+      `MACRO_MAP` slots, 16-byte shortcut records), but the tools keep the
+      template's macro area unchanged. Text macros and custom groups are open.
 
 ### WebHID end-to-end test (done)
 
@@ -223,11 +255,53 @@ reference: it differs from a fresh run by the bytes `A 0x0028` and `B 0x0003`.
 - [x] `tools/xkb/` + `tools/install_fkeys_xkb.sh` — a user-level layout override.
 - [x] `KEYS.md` — the full description.
 
-### Stage 4. Verification on hardware
+### Stage 4. Verification on hardware (done)
 
-- [ ] `lsusb` → confirm the VID/PID.
-- [ ] Compare a dump from the emulator with a dump from the real device.
-- [ ] Write a config and make sure it survives without the software.
+- [x] `lsusb` → VID/PID `30fa:2350`, two USB interfaces; the vendor collections
+      `0xFF00`/`0xFF01` share `/dev/hidraw12` in this unit.
+- [x] The real feature report is 8 bytes (ID + 7 payload), not 16: the
+      emulator descriptor was 16 bytes, so the first capture carries extra
+      padding and a `flag` byte that never reaches hardware.
+- [x] Memory read: `07 18 05` → GET (byte 1 is the data) → `07 18 01`
+      (close). Without the close the next read returns `0xb4`; the first two
+      answers after `INIT`/`COMMIT` are stale.
+- [x] The factory config base was `0x0118`; the chip-burning-tool layout is
+      `0x00E0`. The app reads the base from the info answer and writes it to
+      `0xD2..0xD3`; phase-B header `+0x1C/+0x1E` hold the keymap and table
+      bases.
+- [x] Full upload through `k815ctl apply`: key 1 → `F13` (`0x68`) appears in
+      the active bank (0x168 on the `0x0118` layout, 0x128 on `0x00E0`) and
+      survives a second apply / read-back.
+- [x] `tests/fixtures/hw_apply.jsonl.gz` (`0x0118`) and
+      `tests/fixtures/hw_apply_e0.jsonl.gz` (`0x00E0`) — real hardware
+      sessions captured from the vendor application through Wine; `k815ctl`
+      and WebHID select the one matching the reported base.
+- [x] Recovery after a corrupt write: the first upload used the emulator-sized
+      16-byte reports and damaged the identity area; the unit fell back to
+      `30fa:2360 USB Keyboard` (standard mode). The chip vendor's IST83025B
+      burning tool (`KB_Config.exe`, `20240819112054.zip`) restored PID
+      `0x2350`, the `MKESPN K815`/`MKESPN` product info, game mode and the
+      `0x00E0` layout.
+- [x] WebHID on hardware: the page connects to `USB Keyboard` (0xFF01), writes,
+      verifies and closes the HID handle. Automatic USB re-enumeration is
+      available through `tools/serve_webhid.py` (`POST /reset`, USBDEVFS_RESET)
+      after `sudo sh tools/install_udev.sh`; without it one replug is needed.
+- [x] Physical key: `F13` reaches the kernel; the default xkb maps it to
+      `XF86Tools` (KDE opens System Settings), and `tools/install_fkeys_xkb.sh`
+      restores real F13–F24. A key assigned to `A` (`0x04`) works from the page.
+- [x] Encoder rotation: keymap slots 41/49 are not used by rotation (49 is
+      the press). A single-key macro record makes rotation send ordinary keys:
+      left `0x56`, right `0x57`, press `F21`, with no media layer. The working
+      preset is `presets/k815-f13-20-encoder.json`; `encoder --macro` writes it.
+- [x] Replug/persistence: the configuration survives a power cycle.
+- [x] WebHID e2e: `selftest_webhid.py` uses the e0 session; `e2e_webhid.py`
+      uses the e0 session and skips with a clear message when a physical K815
+      is connected (VID/PID collision with the emulator in the chooser).
+- [x] Hardware limits (November 2026): the controller is an **IST83025B/K201**
+      (USB 1.1 low-speed, 100 Hz, 7-colour global LED driver, no per-key RGB).
+      Memory reads leave the firmware in a read state; the page sends the
+      closing `INIT`+`COMMIT` handshake. Config I/O is ~20 ms/byte. See
+      `docs/HARDWARE.md` and `docs/KNOWN-LIMITATIONS.md`.
 
 ## Running the emulator and the application
 

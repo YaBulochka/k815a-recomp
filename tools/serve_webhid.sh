@@ -5,4 +5,4 @@ set -eu
 PORT="${1:-8765}"
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 echo "open http://127.0.0.1:$PORT/webhid/"
-exec python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$HERE"
+exec env K815_PORT="$PORT" python3 "$HERE/tools/serve_webhid.py"
