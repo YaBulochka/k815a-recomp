@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Mode 4 (Neon) preview now shows the global colour cycle: one colour for all
+  keys, advancing through the palette, instead of a per-key rainbow.
+
 ## v1.0.0 — 2026-11-06
 
 First public release.

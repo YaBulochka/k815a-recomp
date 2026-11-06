@@ -1,13 +1,13 @@
 // MKESPN K815 — configuration interface.
 // Protocol and WebHID: ./k815.js, session template: ./k815_session.js
 
-import { SESSION, LED_EFFECTS } from "./k815_session.js?v=20261105-u18";
+import { SESSION, LED_EFFECTS } from "./k815_session.js?v=20261107-u1";
 import {
   SLOTS, USAGES, decodeBlob, patchKeymap, patchLed, patchSwitches, SWITCH_BITS,
   patchEncoderRotation, ENCODER_FUNCTIONS, encoderNumberOf, keymapFromIni,
   readReport, featurePayloadBytes, chooseDevice, describeDevice, pickDevice,
   pickStable, WRITE_USAGE_PAGE,
-} from "./k815.js?v=20261105-u18";
+} from "./k815.js?v=20261107-u1";
 
 const $ = (id) => document.getElementById(id);
 const make = (tag, cls, text) => {
@@ -439,18 +439,6 @@ function paletteAt(pos) {
   return p[i];
 }
 
-function hsvRgb(h, s, v) {
-  h = ((h % 1) + 1) % 1;
-  const i = Math.floor(h * 6);
-  const f = h * 6 - i;
-  const p = v * (1 - s);
-  const q = v * (1 - f * s);
-  const t = v * (1 - (1 - f) * s);
-  const [r, g, b] = [[v, t, p], [q, v, p], [p, v, t],
-                     [p, q, v], [t, p, v], [v, p, q]][i % 6];
-  return [r * 15, g * 15, b * 15];
-}
-
 function buildLedPreview() {
   const wrap = $("ledPreviewKeys");
   wrap.textContent = "";
@@ -526,8 +514,8 @@ function paintLedPreview(now) {
         alpha = 0.15 + 0.85 * react
           * Math.pow(0.5 + 0.5 * Math.sin(phase * 2 + idx * 0.9), 2);
         break;
-      case 4: // Neon
-        color = hsvRgb(t * 0.12 + idx * 0.07, 1, 1);
+      case 4: // Neon: one colour for the whole board, cycling through the palette
+        color = paletteAt(t / period);
         break;
       case 5: // Ambilight
         color = paletteAt(idx * 0.7 + t * 0.35);
