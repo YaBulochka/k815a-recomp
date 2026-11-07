@@ -234,8 +234,32 @@ single shortcut key. The measured records are consistent with these shortcuts
 The usage byte (offsets 5 and 9) is X/C/V/D/A; the modifier byte is `0xe0` for
 the Ctrl shortcuts and `0xe3` for Win+D. The SelectAll record has the two halves
 swapped relative to the others (observed once; worth re-checking on hardware).
-The first two bytes are `01 00`; bytes 10..15 are zero. The exact meaning of
-`0x86`/`0x06` is not decoded yet.
+The first two bytes are `01 00`; bytes 10..15 are zero.
+
+The high nibble of `0x86`/`0x06` is the direction: `0x80` = key down, `0x00` =
+key up. The low nibble is the **key hold in 8 ms units**:
+
+```
+hold_units = (hold_ms + 3) // 8        # clamped to 1..15
+```
+
+The factory `0x86`/`0x06` is therefore `n = 6`, i.e. a **48 ms** hold, not a
+zero delay. Measured against the chip vendor's burning tool by changing one
+delay in `macro.dat` and diffing the uploaded record:
+
+| hold in macro.dat | low nibble |
+|---|---|
+| 5 ms | 1 (`0x81`/`0x01`) |
+| 20 ms | 2 (`0x82`/`0x02`) |
+| 50 ms | 6 (`0x86`/`0x06`) |
+| 120 ms | 15 (`0x8f`/`0x0f`) |
+
+The same encoding is used by the encoder's single-key rotation record, so the
+key hold is configurable there: `encoderHoldMs` in the JSON preset (8..120 ms,
+default 48), `k815ctl.py encoder --macro ... --hold MS`, and the **Key hold**
+selector in the WebHID page. On the test unit 24 ms felt snappier than 48 ms;
+120 ms made rotation slower, so a longer hold is not a cure for the 100 Hz
+polling limit (see `docs/KNOWN-LIMITATIONS.md`).
 
 One custom single-letter macro ("Z") produced the keymap marker but **no**
 record; the application only uploaded the keymap byte. This experiment is

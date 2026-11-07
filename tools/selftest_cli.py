@@ -131,6 +131,23 @@ def main():
     check("encoderKeys applies back to the same stream",
           P.emit(p5r) == P.emit(p5m))
 
+    # the low nibble of the down/up tag is the key hold in 8 ms units
+    check("encoder hold quantization",
+          [P.encoder_hold_units(v) for v in (5, 20, 50, 120)] == [1, 2, 6, 15])
+    p5h, _ = P.program_from_capture(capture)
+    P.patch_encoder_macro(p5h, {"enc0": 0x56, "enc1": 0x57}, hold_ms=24)
+    check("24 ms encoder macro record",
+          P.encoder_macro_record(0x56, 24)[:6].hex() == "010083560356")
+    check("read_encoder_hold finds 24 ms",
+          [P.read_encoder_hold(p5h, "enc0"),
+           P.read_encoder_hold(p5h, "enc1")] == [24, 24])
+    hpreset = P.preset_from_program(p5h)
+    check("preset exports encoderHoldMs", hpreset.get("encoderHoldMs") == 24)
+    p5hr, _ = P.program_from_capture(capture)
+    P.apply_preset(p5hr, {"encoderKeys": {"enc0": 0x56, "enc1": 0x57},
+                          "encoderHoldMs": 24})
+    check("encoderHoldMs round-trips", P.emit(p5hr) == P.emit(p5h))
+
     # 4. preset: export -> apply must be a no-op on the captured template
     preset = P.preset_from_program(prog, capture)
     check("preset carries 160 keymap bytes", len(preset["keymap"]) == 160)

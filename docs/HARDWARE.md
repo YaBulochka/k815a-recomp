@@ -85,11 +85,14 @@ what this means for OpenRGB.
 One mechanical encoder is wired to the controller's `W1`/`W2` inputs. Rotation
 can be configured as one of 17 Consumer-page functions or as a single ordinary
 HID key per direction. The single-key mode is written as a 16-byte macro record
-`01 00 86 <usage> 06 <usage>` (key down, key up, no delay). The encoder press is
-keymap slot 49; slot 41 is not used by rotation on this firmware.
+`01 00 8n <usage> 0n <usage>`; the high nibble is down (`0x80`) or up (`0x00`),
+and the low nibble is the key hold in 8 ms units. The factory `86`/`06` is a
+**48 ms** hold, configurable from 8 to 120 ms. The encoder press is keymap
+slot 49; slot 41 is not used by rotation on this firmware.
 
 The encoder is scanned and reported by the ASIC. There is no host-side setting
-for scan rate, debounce, acceleration or key-hold time.
+for scan rate, debounce or acceleration; the key hold above is the only timing
+control.
 
 ## Config memory, base and identity
 

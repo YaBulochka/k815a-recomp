@@ -272,7 +272,7 @@ code, .mono { font-family: var(--mono); }
 /* ------------------------------------------------------- encoder, switches */
 
 .card-row {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: minmax(0, 1.573fr) minmax(0, 1fr);
   gap: 16px;
@@ -281,6 +281,10 @@ code, .mono { font-family: var(--mono); }
 .card-row > .card { min-height: 0; }
 
 .enc-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.card-head .right.enc-head-hold { display: flex; align-items: center; gap: 10px; }
+.enc-hold-inline { display: flex; align-items: center; gap: 6px; }
+.enc-hold-inline > span { font-size: 11px; color: var(--muted); }
+.enc-hold-inline select { width: 84px; height: 26px; padding: 0 6px; font-size: 11px; }
 .switch-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 12px; }
 
 .field { display: block; min-width: 0; }

@@ -1,13 +1,14 @@
 // MKESPN K815 — configuration interface.
 // Protocol and WebHID: ./k815.js, session template: ./k815_session.js
 
-import { SESSION, LED_EFFECTS } from "./k815_session.js?v=20261107-u1";
+import { SESSION, LED_EFFECTS } from "./k815_session.js?v=20261107-u2";
 import {
   SLOTS, USAGES, decodeBlob, patchKeymap, patchLed, patchSwitches, SWITCH_BITS,
   patchEncoderRotation, ENCODER_FUNCTIONS, encoderNumberOf, keymapFromIni,
+  decodeEncoderMacroRecord, ENCODER_HOLD_DEFAULT, ENCODER_HOLD_MIN, ENCODER_HOLD_MAX,
   readReport, featurePayloadBytes, chooseDevice, describeDevice, pickDevice,
   pickStable, WRITE_USAGE_PAGE,
-} from "./k815.js?v=20261107-u1";
+} from "./k815.js?v=20261107-u2";
 
 const $ = (id) => document.getElementById(id);
 const make = (tag, cls, text) => {
@@ -100,6 +101,8 @@ const defaultEncoderKeys = {
 const encoderKeys = { ...defaultEncoderKeys };
 let encoderMode = ((DENCK.enc0 !== null && DENCK.enc0 !== undefined)
   || (DENCK.enc1 !== null && DENCK.enc1 !== undefined)) ? "keys" : "media";
+let encoderHoldMs = Number.isInteger(SESSION.defaultEncoderHold)
+  ? SESSION.defaultEncoderHold : ENCODER_HOLD_DEFAULT;
 
 // The edit counter starts from the last written state, not from the factory
 // template: a successful Apply moves the "N edits not written" origin.
@@ -111,6 +114,7 @@ const dirtyLed = {
 let dirtySwitches = defaultSwitches;
 const dirtyEncoder = { ...defaultEncoder };
 const dirtyEncoderKeys = { ...defaultEncoderKeys };
+let dirtyEncoderHoldMs = encoderHoldMs;
 let dirtyEncoderMode = encoderMode;
 
 const SLOT_META = {
@@ -908,6 +912,23 @@ function fillKeySelect(sel, usage) {
   sel.title = selOpt ? selOpt.title : "";
 }
 
+function fillHoldSelect(sel, value) {
+  sel.textContent = "";
+  for (let ms = ENCODER_HOLD_MIN; ms <= ENCODER_HOLD_MAX; ms += 8) {
+    const o = document.createElement("option");
+    o.value = String(ms);
+    o.textContent = `${ms} ms`;
+    sel.appendChild(o);
+  }
+  if (![...sel.options].some((o) => Number(o.value) === value)) {
+    const o = document.createElement("option");
+    o.value = String(value);
+    o.textContent = `${value} ms`;
+    sel.appendChild(o);
+  }
+  sel.value = String(value);
+}
+
 function buildEncoderControls() {
   for (const [id, key] of ENC_INPUTS) {
     const sel = $(id);
@@ -932,6 +953,11 @@ function buildEncoderControls() {
     refreshEncoderControls();
     updateDirty();
   });
+  $("encHold").addEventListener("change", () => {
+    encoderHoldMs = Number($("encHold").value);
+    refreshEncoderNote();
+    updateDirty();
+  });
   refreshEncoderControls();
 }
 
@@ -946,6 +972,8 @@ function refreshEncoderControls() {
     fillKeySelect($(id), encoderKeys[key]);
     $(id).hidden = !keysMode;
   }
+  $("encHoldField").hidden = !keysMode;
+  fillHoldSelect($("encHold"), encoderHoldMs);
   refreshEncoderNote();
 }
 
@@ -962,8 +990,9 @@ function refreshEncoderNote() {
   const right = keysMode
     ? `${encoderKeyName(encoderKeys.enc1)} (0x${hex(encoderKeys.enc1)})`
     : `${encoderFnName(encoder.enc1)} (0x${hex16(encoderFnUsage(encoder.enc1) ?? 0)})`;
+  const hold = keysMode ? `, hold ${encoderHoldMs} ms` : "";
   $("encNote").textContent =
-    `Left: ${left}, right: ${right}. Press: click the encoder on the schematic.`;
+    `Left: ${left}, right: ${right}${hold}. Press: click the encoder on the schematic.`;
 }
 
 // --------------------------------------------------------------------------- //
@@ -985,6 +1014,7 @@ function editCount() {
   if (encoderMode === "keys") {
     if (encoderKeys.enc0 !== dirtyEncoderKeys.enc0
         || encoderKeys.enc1 !== dirtyEncoderKeys.enc1) n++;
+    if (encoderHoldMs !== dirtyEncoderHoldMs) n++;
   } else if (encoder.enc0 !== dirtyEncoder.enc0
              || encoder.enc1 !== dirtyEncoder.enc1) n++;
   return n;
@@ -1002,6 +1032,7 @@ function commitWrittenState() {
   dirtyEncoderMode = encoderMode;
   Object.assign(dirtyEncoder, encoder);
   Object.assign(dirtyEncoderKeys, encoderKeys);
+  dirtyEncoderHoldMs = encoderHoldMs;
   updateDirty();
 }
 
@@ -1021,7 +1052,8 @@ function stage() {
   const nl = patchLed(frames, led, SESSION);
   const ns = patchSwitches(frames, switches, SESSION);
   const rotation = encoderMode === "keys"
-    ? { mode: "keys", enc0: encoderKeys.enc0, enc1: encoderKeys.enc1 }
+    ? { mode: "keys", enc0: encoderKeys.enc0, enc1: encoderKeys.enc1,
+        hold: encoderHoldMs }
     : { mode: "media", enc0: encoder.enc0, enc1: encoder.enc1 };
   const ne = patchEncoderRotation(frames, rotation, SESSION);
   let changed = 0;
@@ -1042,8 +1074,8 @@ function validate() {
   if (encoderMode === "keys") {
     const name = (v) => NAMES.get(v) || `0x${hex(v)}`;
     log(`encoder rotation: left = ${name(encoderKeys.enc0)} (0x${hex(encoderKeys.enc0)}), `
-      + `right = ${name(encoderKeys.enc1)} (0x${hex(encoderKeys.enc1)}); `
-      + `press = ${name(keymap[49])} (slot 49)`);
+      + `right = ${name(encoderKeys.enc1)} (0x${hex(encoderKeys.enc1)}), `
+      + `hold = ${encoderHoldMs} ms; press = ${name(keymap[49])} (slot 49)`);
   } else {
     const fn = (n) => (ENCODER_FUNCTIONS.find((f) => f[1] === n) || ["?", n, 0]);
     log(`encoder media: A = ${fn(encoder.enc0)[0]} (number ${encoder.enc0}), `
@@ -1262,20 +1294,14 @@ function applyDeviceConfig(get) {
   led.rgbEn = h1a & 0x7f;
 
   const usage = (at) => (get(at) ?? 0) | ((get(at + 1) ?? 0) << 8);
-  const macroAt = (at) => {
-    const rec = Array.from({ length: 16 }, (_, i) => get(at + i) ?? 0);
-    if (rec[0] === 0x01 && rec[1] === 0x00 && rec[2] === 0x86
-        && rec[4] === 0x06 && rec[3] === rec[5]
-        && rec.slice(6).every((v) => v === 0)) {
-      return rec[3];
-    }
-    return null;
-  };
+  const macroAt = (at) => decodeEncoderMacroRecord(
+    Array.from({ length: 16 }, (_, i) => get(at + i) ?? 0));
   let sawMacro = false;
   for (const [key, at] of [["enc0", R], ["enc1", R + 0x10]]) {
     const macro = macroAt(at);
     if (macro !== null) {
-      encoderKeys[key] = macro;
+      encoderKeys[key] = macro.usage;
+      if (macro.hold !== null) encoderHoldMs = macro.hold;
       sawMacro = true;
     } else {
       encoder[key] = encoderNumberOf(usage(at + 6));
@@ -1291,6 +1317,7 @@ function applyDeviceConfig(get) {
   Object.assign(dirtyEncoder, encoder);
   Object.assign(dirtyEncoderKeys, encoderKeys);
   dirtyEncoderMode = encoderMode;
+  dirtyEncoderHoldMs = encoderHoldMs;
 
   refreshSchematic();
   renderInspector();
@@ -1750,7 +1777,10 @@ function exportJson() {
     encoderMode,
     encoder: encoderMode === "media" ? { ...encoder } : {},
   };
-  if (encoderMode === "keys") obj.encoderKeys = { ...encoderKeys };
+  if (encoderMode === "keys") {
+    obj.encoderKeys = { ...encoderKeys };
+    obj.encoderHoldMs = encoderHoldMs;
+  }
   for (const s of SLOTS) obj[s.id] = keymap[s.idx];
   downloadJson(obj, "k815-config.json");
   log("configuration exported to k815-config.json (settings of this page, not device memory)", "ok");
@@ -1787,6 +1817,10 @@ function importJson(file) {
           if (typeof obj.encoderKeys[key] === "number") {
             encoderKeys[key] = obj.encoderKeys[key] & 0xff;
           }
+        }
+        if (typeof obj.encoderHoldMs === "number") {
+          encoderHoldMs = Math.min(ENCODER_HOLD_MAX,
+            Math.max(ENCODER_HOLD_MIN, Math.round(obj.encoderHoldMs / 8) * 8));
         }
         refreshEncoderControls();
       } else if (obj.encoder && typeof obj.encoder === "object") {

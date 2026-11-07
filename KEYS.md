@@ -122,14 +122,16 @@ The media mode byte is `0x44` (first number 11); the records contain no
 Consumer usage, so no media function fires.
 
 At the device's 100 Hz endpoint interval (`bInterval = 10 ms`) a quick spin can
-lose detents: the down/up pair has no delay and a HID report is a state
-snapshot, not an event queue. Media functions may be more reliable. There is no
-scan-rate or hold-time setting in the firmware. See
+lose detents: a HID report is a state snapshot, not an event queue. The low
+nibble of `86`/`06` is the key hold in 8 ms units, so the factory pair holds for
+48 ms; it is configurable from 8 to 120 ms. Media functions may be more
+reliable. There is no scan-rate or debounce setting in the firmware. See
 `docs/KNOWN-LIMITATIONS.md`.
 
 The WebHID page exposes the same thing: `Encoder → Rotation sends` switches
-between media functions and keyboard keys, with one key selector per direction
-and a separate selector for the press (slot 49).
+between media functions and keyboard keys, with one key selector per direction,
+a `Key hold` selector (8–120 ms) and a separate selector for the press
+(slot 49).
 
 KDE shortcuts registered through `org.kde.kglobalaccel`:
 

@@ -81,10 +81,11 @@ it is done by hand.
    usage per direction, written as a single-key macro record). The mode switch
    rewrites the full record, so moving between media and keyboard keys works in
    both directions. A separate selector assigns the **encoder press** (keymap
-   slot 49); slot 41 is not used by rotation. The current left/right direction
-   mapping is shown in the hint. Keyboard-key rotation is a single-key macro
-   with key-down/key-up back-to-back; at the 100 Hz endpoint rate a fast spin
-   can lose detents, see
+   slot 49); slot 41 is not used by rotation. Keyboard-key rotation is a
+   single-key macro, and the **Key hold** selector sets the hold encoded in its
+   down/up tags (8–120 ms, quantized to 8 ms, default 48). At the 100 Hz
+   endpoint rate a fast spin can still lose detents; 24 ms was snappier on the
+   test unit while 120 ms made rotation slower. See
    [`../docs/KNOWN-LIMITATIONS.md`](../docs/KNOWN-LIMITATIONS.md).
 7. **Check** — shows how many frames will be sent and how many bytes changed
    (without touching the device).
@@ -107,11 +108,12 @@ it is done by hand.
    binary or an older dump without that metadata, pass `--config-base 0x00E0
    --record-base 0x0248` (burned layout) or use the stored-bank path.
 10. **KBconfig.ini…** — load the current matrix from the vendor software.
-11. **Export/Import JSON** — save the layout, the lighting, the switches and the
-    encoder mode (media numbers or keyboard usages). Export is a copy of the
-    *page*, not of the device memory; use Dump for the latter. The format
-    matches `python3 tools/k815ctl.py preset`/`apply` (version 3), so a preset
-    moves between the browser and the console unchanged.
+11. **Export/Import JSON** — save the layout, the lighting, the switches, the
+    encoder mode (media numbers or keyboard usages) and the encoder key hold
+    (`encoderHoldMs`, 8–120 ms). Export is a copy of the *page*, not of the
+    device memory; use Dump for the latter. The format matches `python3
+    tools/k815ctl.py preset`/`apply` (version 3), so a preset moves between the
+    browser and the console unchanged.
 
 The edit counter in the header shows how many keys and LED fields differ from the
 last written state (or from the loaded template before the first write). The
@@ -207,7 +209,7 @@ The model and the CLI are checked with no browser and no hardware at all:
 
 ```sh
 python3 tools/selftest_cli.py
-# CLI SELFTEST PASS (63/63)
+# CLI SELFTEST PASS (68/68)
 ```
 
 Among other things it applies a JSON export in the shape this page writes (the

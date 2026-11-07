@@ -48,7 +48,7 @@ TEST_ENC_BYTES = {0x016E: 0x00CD, 0x0174: 0x0000, 0x017E: 0x0223, 0x0184: 0x0223
 
 NODE_TEST = r"""
 import { SESSION } from '%(root)s/webhid/k815_session.js';
-import { decodeBlob, patchKeymap, patchLed, patchSwitches, patchEncoder, patchEncoderRotation, keymapFromIni, pickStable } from '%(root)s/webhid/k815.js';
+import { decodeBlob, patchKeymap, patchLed, patchSwitches, patchEncoder, patchEncoderRotation, encoderMacroRecord, decodeEncoderMacroRecord, keymapFromIni, pickStable } from '%(root)s/webhid/k815.js';
 import { readFileSync } from 'node:fs';
 
 const exp = JSON.parse(readFileSync('%(expected)s', 'utf8'));
@@ -69,7 +69,7 @@ else for (let i = 0; i < frames.length; i++) if (frames[i] !== want[i]) { bad = 
 
 const rotFrames = decodeBlob(SESSION.blob);
 const nr = patchEncoderRotation(rotFrames,
-  {mode: 'keys', enc0: 0x56, enc1: 0x57}, SESSION);
+  {mode: 'keys', enc0: 0x56, enc1: 0x57, hold: 24}, SESSION);
 const wantRot = decodeBlob(exp.framesRot);
 let rotBad = -1;
 if (rotFrames.length !== wantRot.length) rotBad = -2;
@@ -85,6 +85,11 @@ let mediaBad = -1;
 if (mediaFrames.length !== want.length) mediaBad = -2;
 else for (let i = 0; i < mediaFrames.length; i++) if (mediaFrames[i] !== want[i]) { mediaBad = i; break; }
 
+const rec24 = encoderMacroRecord(0x56, 24);
+const dec24 = decodeEncoderMacroRecord(rec24);
+const holdOk = rec24[2] === 0x83 && rec24[4] === 0x03
+  && dec24 !== null && dec24.usage === 0x56 && dec24.hold === 24;
+
 const ini = keymapFromIni(readFileSync('%(ini)s', 'utf8'), new Uint8Array(160).fill(0xff));
 let iniBad = -1;
 for (let i = 0; i < 160; i++) if (ini.keymap[i] !== exp.ini[i]) { iniBad = i; break; }
@@ -97,6 +102,7 @@ console.log(JSON.stringify({
   baseOk: baseBad === -1, baseBadAt: baseBad,
   stableMajority: pickStable([0x54, 0x70, 0x70]),
   stableTie: pickStable([0x54, 0x70]),
+  holdOk,
   delays: SESSION.delays, readPauseMs: SESSION.readPauseMs,
   iniOk: iniBad === -1, iniBadAt: iniBad, iniSeen: ini.seen,
 }));
@@ -152,7 +158,8 @@ def main():
     frames = P.emit(prog)
 
     prog_rot, _ = P.program_from_capture(capture)
-    P.apply_preset(prog_rot, {"encoderKeys": {"enc0": 0x56, "enc1": 0x57}})
+    P.apply_preset(prog_rot, {"encoderKeys": {"enc0": 0x56, "enc1": 0x57},
+                              "encoderHoldMs": 24})
     frames_rot = P.emit(prog_rot)
     rot_changed = sum(1 for a, b in zip(b"".join(base_frames),
                                         b"".join(frames_rot)) if a != b)
@@ -185,7 +192,7 @@ def main():
     rot_counts_match = res["rotPatched"] == rot_changed
     stable_ok = res["stableMajority"] == 0x70 and res["stableTie"] == 0x70
     ok = (res["streamOk"] and res["baseOk"] and res["iniOk"] and py_ok
-          and res["rotOk"] and rot_counts_match
+          and res["rotOk"] and rot_counts_match and res["holdOk"]
           and res["mediaRotOk"] and res["mediaRotPatched"] == py_enc
           and stable_ok and counts_match and timing_ok)
     print(f"frames={res['frames']} patched={res['patched']} "
@@ -200,6 +207,7 @@ def main():
           f"delays={res['delays']} readPause={res['readPauseMs']} "
           f"ini={'OK' if res['iniOk'] else f'BAD@{res["iniBadAt"]}'} "
           f"stable={'OK' if stable_ok else 'BAD'} "
+          f"hold={'OK' if res['holdOk'] else 'BAD'} "
           f"pySw={py_sw} pyEnc={py_enc} pyModel={'OK' if py_ok else 'BAD'}")
     if not timing_ok:
         print(f"timing mismatch: JS delays={res['delays']} readPause={res['readPauseMs']}, "

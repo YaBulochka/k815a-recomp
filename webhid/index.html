@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MKESPN K815 — configuration</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="style.css?v=20261107-u1">
+<link rel="stylesheet" href="style.css?v=20261107-u2">
 </head>
 <body>
 
@@ -206,7 +206,14 @@
       <section class="card" id="encoder">
         <div class="card-head">
           <h2 title="Rotation writes USCROLL0 / USCROLL1; press is keymap slot 49.">Encoder</h2>
-          <div class="right">Rotation</div>
+          <div class="right enc-head-hold">
+            <span>Rotation</span>
+            <label class="enc-hold-inline" id="encHoldField" hidden
+                   title="How long a rotation macro holds the key; quantized to 8 ms.">
+              <span>Hold</span>
+              <select id="encHold"></select>
+            </label>
+          </div>
         </div>
         <div class="enc-row">
           <label class="field">
@@ -440,6 +447,6 @@
 <input type="file" id="fileIni" accept=".ini,.txt" hidden>
 <input type="file" id="fileJson" accept=".json" hidden>
 
-<script type="module" src="app.js?v=20261107-u1"></script>
+<script type="module" src="app.js?v=20261107-u2"></script>
 </body>
 </html>

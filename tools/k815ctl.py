@@ -657,7 +657,9 @@ def print_encoder(prog):
     for name in P.ENCODER_RECORDS:
         info = enc[name]
         if info.get("macro") is not None:
-            print(f"  {name}: keyboard macro  usage={info['macro']:#04x}")
+            hold = info.get("hold")
+            tail = f"  hold={hold} ms" if hold is not None else ""
+            print(f"  {name}: keyboard macro  usage={info['macro']:#04x}{tail}")
             continue
         label = P.ENCODER_BY_NUMBER.get(info["number"], (None, "unknown"))[1]
         print(f"  {name}: number={info['number']:>3}  "
@@ -730,6 +732,10 @@ def cmd_encoder(args):
     print("encoder media functions:")
     print_encoder(prog)
     if getattr(args, "macro", None):
+        hold = getattr(args, "hold", P.ENCODER_HOLD_DEFAULT)
+        if not P.ENCODER_HOLD_MIN <= hold <= P.ENCODER_HOLD_MAX:
+            raise SystemExit(f"--hold must be {P.ENCODER_HOLD_MIN}.."
+                             f"{P.ENCODER_HOLD_MAX} ms, got {hold}")
         keys = {}
         for spec in args.macro:
             name, _, val = spec.partition("=")
@@ -743,10 +749,11 @@ def cmd_encoder(args):
                 raise SystemExit(f"encoder macro usage {usage} is not a byte")
             keys[name] = usage
         n = P.patch_encoder_mode(prog, P.ENCODER_MODE_MEDIA)
-        n += P.patch_encoder_macro(prog, keys)
+        n += P.patch_encoder_macro(prog, keys, hold_ms=hold)
         for name in keys:
             n += P.patch_encoder_entry(prog, name, True)
-        print(f"patched encoder keyboard macros: {n} bytes")
+        print(f"patched encoder keyboard macros: {n} bytes "
+              f"(hold {P.encoder_hold_ms(hold)} ms)")
         print_encoder(prog)
         return finish(args, prog)
     if not args.set:
@@ -1014,6 +1021,11 @@ def build_parser():
     en.add_argument("--macro", action="append", default=[], metavar="enc0|enc1=USAGE",
                     help="make rotation send a keyboard usage (hex or decimal); "
                          "this is the only way rotation can send ordinary keys")
+    en.add_argument("--hold", type=lambda s: int(s, 0), default=P.ENCODER_HOLD_DEFAULT,
+                    metavar="MS",
+                    help=f"key hold for --macro, {P.ENCODER_HOLD_MIN}.."
+                         f"{P.ENCODER_HOLD_MAX} ms (quantized to 8 ms; "
+                         f"default {P.ENCODER_HOLD_DEFAULT})")
     en.add_argument("--list", action="store_true",
                     help="print the measured number -> usage table")
     en.add_argument("--dry-run", action="store_true")

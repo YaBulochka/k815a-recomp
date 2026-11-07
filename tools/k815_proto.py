@@ -424,9 +424,15 @@ ENCODER_MODE_MEDIA = 11
 ENCODER_MODE_MEDIA_BYTE = 0x44
 ENCODER_MODE_BYTE_BASE = 0x0B
 # A single-key macro record: 01 00 <down> <usage> <up> <usage> ...
-ENCODER_MACRO_TAG_DOWN = 0x86
-ENCODER_MACRO_TAG_UP = 0x06
+# The low nibble of the down/up tag is the hold time in 8 ms units; the high
+# nibble is 8 for key-down and 0 for key-up.  The encoder records in the
+# firmware therefore already carry a 48 ms hold (n=6).
+ENCODER_MACRO_TAG_DOWN = 0x80
+ENCODER_MACRO_TAG_UP = 0x00
 ENCODER_MACRO_LEN = 16
+ENCODER_HOLD_DEFAULT = 48       # ms, n=6 (the factory record)
+ENCODER_HOLD_MIN = 8            # ms, n=1
+ENCODER_HOLD_MAX = 120          # ms, n=15 (the field is four bits)
 
 # (number in [Config1], HID Consumer usage, name).  Measured by differential
 # sweep; numbers 17 and up are the application's own functions, which never
@@ -487,11 +493,40 @@ def patch_encoder_mode(prog: "Program", mode: int) -> int:
             + prog.patch_b(ENCODER_MODE_B_ADDR, bytes([value])))
 
 
-def encoder_macro_record(usage: int) -> bytes:
+def encoder_hold_units(hold_ms: int) -> int:
+    """The four-bit hold field for a millisecond value (1..15).
+
+    Measured against the burning tool: 5 ms -> 1, 20 ms -> 2, 50 ms -> 6,
+    120 ms -> 15, i.e. ``(ms + 3) // 8`` clamped to the four-bit field.
+    """
+    return max(1, min(15, (int(hold_ms) + 3) // 8))
+
+
+def encoder_hold_ms(hold_ms: int) -> int:
+    """The quantized hold time in milliseconds."""
+    return encoder_hold_units(hold_ms) * 8
+
+
+def encoder_macro_record(usage: int,
+                         hold_ms: int = ENCODER_HOLD_DEFAULT) -> bytes:
     """A 16-byte record that presses and releases one keyboard usage."""
     usage = int(usage) & 0xFF
-    return bytes([0x01, 0x00, ENCODER_MACRO_TAG_DOWN, usage,
-                  ENCODER_MACRO_TAG_UP, usage] + [0] * 10)
+    hold = encoder_hold_units(hold_ms)
+    return bytes([0x01, 0x00, ENCODER_MACRO_TAG_DOWN | hold, usage,
+                  ENCODER_MACRO_TAG_UP | hold, usage] + [0] * 10)
+
+
+def _encoder_macro_bytes(prog: "Program", name: str) -> bytes:
+    addr = prog.b_addr(ENCODER_RECORDS[name])
+    return bytes((prog.get(ENCODER_PHASE, addr + i) or 0)
+                 for i in range(ENCODER_MACRO_LEN))
+
+
+def _is_single_key_macro(rec: bytes) -> bool:
+    return (rec[0:2] == b"\x01\x00"
+            and (rec[2] & 0xF0) == ENCODER_MACRO_TAG_DOWN
+            and (rec[4] & 0xF0) == ENCODER_MACRO_TAG_UP
+            and rec[3] == rec[5] and not any(rec[6:]))
 
 
 def read_encoder_macro(prog: "Program", name: str) -> int | None:
@@ -500,29 +535,38 @@ def read_encoder_macro(prog: "Program", name: str) -> int | None:
     Media records (``01 00 01 f1 ...``) do not match; neither do longer
     macros with several events.
     """
-    addr = prog.b_addr(ENCODER_RECORDS[name])
-    rec = bytes((prog.get(ENCODER_PHASE, addr + i) or 0)
-                for i in range(ENCODER_MACRO_LEN))
-    if (rec[0:2] == b"\x01\x00" and rec[2] == ENCODER_MACRO_TAG_DOWN
-            and rec[4] == ENCODER_MACRO_TAG_UP and rec[3] == rec[5]
-            and not any(rec[6:])):
-        return rec[3]
-    return None
+    rec = _encoder_macro_bytes(prog, name)
+    return rec[3] if _is_single_key_macro(rec) else None
 
 
-def patch_encoder_macro(prog: "Program", keys) -> int:
+def read_encoder_hold(prog: "Program", name: str) -> int | None:
+    """The quantized hold time of a single-key macro record, or None."""
+    rec = _encoder_macro_bytes(prog, name)
+    if not _is_single_key_macro(rec):
+        return None
+    down = rec[2] & 0x0F
+    up = rec[4] & 0x0F
+    if down != up or not 1 <= down <= 15:
+        return None
+    return down * 8
+
+
+def patch_encoder_macro(prog: "Program", keys,
+                        hold_ms: int = ENCODER_HOLD_DEFAULT) -> int:
     """Write a single-key macro into each encoder direction.
 
     ``keys`` maps ``"enc0"/"enc1"`` to a keyboard HID usage (0..0xFF).  This is
     the only mode in which rotation can send an ordinary keyboard key: the
     keymap slots 41/49 are not used by rotation, and slot 49 is the press.
+    ``hold_ms`` is the key hold encoded in the record (8..120 ms, quantized to
+    8 ms units).
     """
     n = 0
     for name, usage in keys.items():
         if name not in ENCODER_RECORDS:
             continue
         addr = prog.b_addr(ENCODER_RECORDS[name])
-        for i, value in enumerate(encoder_macro_record(usage)):
+        for i, value in enumerate(encoder_macro_record(usage, hold_ms)):
             cur = prog.get(ENCODER_PHASE, addr + i)
             if cur is None or cur == value:
                 continue
@@ -599,6 +643,7 @@ def read_encoder(prog: "Program") -> dict:
             "number": encoder_number_of(usage),
             "second": g(a1) | (g(a1 + 1) << 8),
             "macro": read_encoder_macro(prog, name),
+            "hold": read_encoder_hold(prog, name),
         }
     return out
 
@@ -687,9 +732,12 @@ def preset_from_program(prog: "Program", template: str | None = None,
     km = read_keymap(prog, keymap_phase, keymap_base)
     enc_numbers = {}
     enc_keys = {}
+    enc_hold = None
     for name, info in read_encoder(prog).items():
         if info["macro"] is not None:
             enc_keys[name] = info["macro"]
+            if enc_hold is None and info.get("hold") is not None:
+                enc_hold = info["hold"]
         elif info["number"] >= 0:
             enc_numbers[name] = info["number"]
     preset = {
@@ -710,6 +758,8 @@ def preset_from_program(prog: "Program", template: str | None = None,
     }
     if enc_keys:
         preset["encoderKeys"] = enc_keys
+        if enc_hold is not None:
+            preset["encoderHoldMs"] = enc_hold
     if template:
         preset["template"] = os.path.basename(template)
     for sid, _label, idx in SLOTS:
@@ -778,8 +828,11 @@ def apply_preset(prog: "Program", preset: dict) -> dict:
     # function-table entries; the record itself carries the key.
     enc_keys = preset.get("encoderKeys")
     if isinstance(enc_keys, dict) and enc_keys:
+        hold = preset.get("encoderHoldMs", ENCODER_HOLD_DEFAULT)
+        if not isinstance(hold, (int, float)):
+            hold = ENCODER_HOLD_DEFAULT
         counts["encoderMode"] = patch_encoder_mode(prog, ENCODER_MODE_MEDIA)
-        counts["encoderKeys"] = patch_encoder_macro(prog, enc_keys)
+        counts["encoderKeys"] = patch_encoder_macro(prog, enc_keys, hold_ms=hold)
         for name in enc_keys:
             if name in ENCODER_RECORDS:
                 counts["encoderKeys"] += patch_encoder_entry(prog, name, True)

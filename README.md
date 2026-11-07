@@ -34,7 +34,7 @@ columns scroll.
 | **Keys** | 8 keys + encoder press, mapped to USB HID usage codes (`F13..F24` work well as free hotkeys, see `KEYS.md`) |
 | **Lighting** | 7-colour palette, 9 vendor-visible effect modes with speed, direction, symmetry, single-colour, reaction and an active-colour mask (hidden effect numbers are not offered; see `docs/KNOWN-LIMITATIONS.md`) |
 | **Switches** | `BALTF4`, `BWINLOCK`, `BALLKEYSLOCK`, `KEYSMODE` — four options in one byte |
-| **Encoder** | Rotation: 17 Consumer-page functions, or a single-key keyboard macro (the only way it can send an ordinary key). Press: a normal keymap slot |
+| **Encoder** | Rotation: 17 Consumer-page functions, or a single-key keyboard macro (the only way it can send an ordinary key), with a configurable 8–120 ms hold (default 48). Press: a normal keymap slot |
 | **Macros** | Factory shortcuts Cut/Copy/Paste/Boss/SelectAll (protocol recovered, not editable in the tools yet) |
 | **Backup** | Dump the device memory and restore an exact known-good frame stream |
 
@@ -55,14 +55,19 @@ yet; they keep the macro area of the template unchanged. See `PROTOCOL.md`.
 | Encoder right | Keypad `+` (`0x57`) |
 | Encoder press | `F21` (`0x70`) |
 
-The rotation directions use **single-key macro records** (`01 00 86 <usage> 06 <usage>`)
-instead of media functions, so the media layer is not involved. The press is the
-keymap slot 49; rotation does not use keymap slots 41/49.
+The rotation directions use **single-key macro records**
+(`01 00 86 <usage> 06 <usage>`) instead of media functions, so the media layer
+is not involved. The low nibble of `86`/`06` is the key hold in 8 ms units, so
+the factory record holds for **48 ms**; the preset field `encoderHoldMs`
+(8–120 ms) changes it. The shipped preset uses **24 ms**, which felt snappier on
+the test unit. The press is keymap slot 49; rotation does not use keymap slots
+41/49.
 
 In WebHID the **Encoder** card has a `Rotation sends` switch (`Media functions` /
-`Keyboard keys`), a key selector for each direction, and a separate
-`Encoder press` selector. Switching between media and keyboard rewrites the
-whole 16-byte record, so either direction can be changed without the CLI.
+`Keyboard keys`), a key selector for each direction, a `Key hold` selector, and
+a separate `Encoder press` selector. Switching between media and keyboard
+rewrites the whole 16-byte record, so either direction can be changed without
+the CLI.
 
 ```sh
 python3 tools/k815ctl.py apply presets/k815-f13-20-encoder.json
@@ -326,7 +331,7 @@ Missing optional tools are reported as skipped, not failed.
 Individual checks:
 
 ```sh
-python3 tools/selftest_cli.py      # CLI SELFTEST PASS (63/63)
+python3 tools/selftest_cli.py      # CLI SELFTEST PASS (68/68)
 python3 tools/selftest_webhid.py   # WEBHID SELFTEST PASS (node required)
 python3 tools/e2e_webhid.py        # E2E WEBHID PASS (Xvfb :99 + chromium + xdotool)
 ```
@@ -344,9 +349,11 @@ ones:
 * **100 Hz polling.** Both HID interrupt endpoints declare `bInterval = 10 ms`
   on USB 1.1 low-speed. Fast key/encoder events inside one 10 ms window can be
   lost; there is no polling setting in the firmware.
-* **Encoder dropouts.** Rotation in keyboard mode is a single-key macro with
-  key-down/key-up back-to-back and no delay; a quick spin loses detents. Media
-  functions may be more reliable. No scan rate or hold-time setting exists.
+* **Encoder dropouts.** Rotation in keyboard mode is a single-key macro; the
+  key hold is now configurable (`encoderHoldMs`, 8–120 ms, default 48). A quick
+  spin can still lose detents at the fixed 100 Hz endpoint rate; on the test
+  unit 24 ms felt snappier, while 120 ms made rotation slower. Media functions
+  may be more reliable. There is no scan-rate or debounce setting.
 * **No per-key lighting.** One 7-colour palette and one global effect; the ASIC
   renders all keys. OpenRGB is realistic only for the global palette/effect, not
   per-key.

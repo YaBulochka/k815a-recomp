@@ -9,7 +9,7 @@ of the hardware. Hardware details are in [HARDWARE.md](HARDWARE.md).
 | Area | Limit |
 |---|---|
 | Polling rate | **100 Hz** (`bInterval = 10 ms` on both interrupt endpoints) |
-| Encoder | fast detents are dropped; key down/up in the macro record has no delay |
+| Encoder | fast detents can be dropped at 100 Hz; the macro key hold is configurable (8–120 ms) |
 | Per-key lighting | **not available**; one 7-colour palette + one global effect |
 | Addressable RGB / OpenRGB per key | not possible on this controller |
 | Config read speed | ~20 ms per byte, ~4.8 s for the 225-byte config (single pass) |
@@ -52,23 +52,25 @@ The encoder is read by the ASIC. Rotation is either an internal Consumer
 function or a single-key macro. The single-key record is
 
 ```
-01 00 86 <usage> 06 <usage> 00 ...
+01 00 8n <usage> 0n <usage> 00 ...
 ```
 
-i.e. key down immediately followed by key up, with no delay. Combined with the
-10 ms report interval, a detent can be completely missed: the host polls after
-the key is already released. This is why a quick spin "activates" only a few
-times.
+where the low nibble `n` is the key hold in 8 ms units (`n = (ms + 3) // 8`,
+1..15). The factory `86`/`06` is therefore a **48 ms** hold, not a zero delay.
+The hold is exposed as `encoderHoldMs` (8–120 ms, default 48) in the preset,
+`k815ctl.py encoder --macro ... --hold MS`, and the WebHID **Key hold**
+selector. Measured on one unit: 24 ms felt snappier than 48 ms, while 120 ms
+made rotation slower, so a longer hold does not cure the 100 Hz polling limit.
 
-There is no setting for encoder scan rate, debounce, acceleration or key-hold
-time. Options:
+Combined with the 10 ms report interval, a detent can still be completely
+missed: the host polls after the key is already released. This is why a quick
+spin can "activate" only a few times. There is no setting for encoder scan
+rate, debounce or acceleration. Options:
 
+* try a shorter hold (24 ms or 8 ms) if the default feels sluggish;
 * use **Media functions** for rotation instead of a keyboard key; the internal
   Consumer function may be held long enough to be seen more reliably;
 * try `usbhid.kbpoll=1` (above);
-* insert a delay between down and up in the macro record: the `0x86`/`0x06`
-  opcodes are not fully decoded and a wrong record can corrupt the device, so
-  this is experimental, not supported by the tools;
 * accept the limit or replace the controller (see below).
 
 The encoder press is keymap slot 49. Slot 41 is not used by rotation.

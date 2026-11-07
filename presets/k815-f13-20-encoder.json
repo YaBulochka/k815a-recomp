@@ -228,5 +228,6 @@
   "encoderKeys": {
     "enc0": 86,
     "enc1": 87
-  }
+  },
+  "encoderHoldMs": 24
 }

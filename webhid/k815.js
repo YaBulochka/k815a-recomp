@@ -194,13 +194,40 @@ export function patchEncoder(frames, enc, session) {
   return n;
 }
 
+// The down/up tags of a single-key rotation record carry the key hold in
+// their low nibble, in 8 ms units.  The factory record uses 6 (48 ms); the
+// measured mapping is (ms + 3) / 8, clamped to 1..15 (8..120 ms).
+export const ENCODER_HOLD_DEFAULT = 48;
+export const ENCODER_HOLD_MIN = 8;
+export const ENCODER_HOLD_MAX = 120;
+
+export function encoderHoldUnits(holdMs) {
+  const ms = Number.isFinite(Number(holdMs))
+    ? Number(holdMs) : ENCODER_HOLD_DEFAULT;
+  return Math.min(15, Math.max(1, Math.floor((ms + 3) / 8)));
+}
+
 // A single-key keyboard macro in a rotation record.  This is the only mode
 // that makes the encoder send an ordinary key: rotation does not use the
 // keymap slots, and slot 49 is the encoder press.
-export function encoderMacroRecord(usage) {
+export function encoderMacroRecord(usage, holdMs = ENCODER_HOLD_DEFAULT) {
   usage &= 0xff;
-  return [0x01, 0x00, 0x86, usage, 0x06, usage,
+  const hold = encoderHoldUnits(holdMs);
+  return [0x01, 0x00, 0x80 | hold, usage, hold, usage,
           0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+}
+
+export function decodeEncoderMacroRecord(rec) {
+  if (!rec || rec.length < 16) return null;
+  if (rec[0] === 0x01 && rec[1] === 0x00
+      && (rec[2] & 0xf0) === 0x80 && (rec[4] & 0xf0) === 0x00
+      && rec[3] === rec[5] && rec.slice(6).every((v) => v === 0)) {
+    const down = rec[2] & 0x0f;
+    const up = rec[4] & 0x0f;
+    const hold = down === up && down >= 1 && down <= 15 ? down * 8 : null;
+    return { usage: rec[3], hold };
+  }
+  return null;
 }
 
 export function encoderMediaRecord(number) {
@@ -237,7 +264,7 @@ export function patchEncoderRotation(frames, rotation, session) {
   for (const [name, index] of [["enc0", 20], ["enc1", 21]]) {
     const value = rotation[name];
     const rec = rotation.mode === "keys"
-      ? encoderMacroRecord(value)
+      ? encoderMacroRecord(value, rotation.hold)
       : encoderMediaRecord(value);
     if (!rec) continue;
     const logical = 0x0168 + (name === "enc1" ? 0x10 : 0);
