@@ -1,9 +1,20 @@
 # Changelog
 
-## Unreleased
+## v1.1.0 — 2026-11-07
+
+### Added
+
+- Configurable key hold for encoder rotation in keyboard mode: 8–120 ms,
+  quantized to 8 ms, default 48. This is the encoder's **scroll sensitivity**:
+  a shorter hold makes fast rotation snappier, a longer hold keeps the key
+  pressed longer. Exposed as the WebHID **Key hold** selector,
+  `k815ctl.py encoder --macro ... --hold MS`, and `encoderHoldMs` in presets.
+  The hold lives in the low nibble of the `0x86`/`0x06` down/up tags.
 
 ### Fixed
 
+- The encoder hint no longer overflows its card: the `Key hold` selector moved
+  into the card header and the bottom card row now sizes to its content.
 - Mode 4 (Neon) preview now shows the global colour cycle: one colour for all
   keys, advancing through the palette, instead of a per-key rainbow.
 
