@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Documentation and tests
+
+- Recorded the real-hardware macro limits: a 2-byte header plus 2-byte
+  down/up events, and a **32-byte** function payload shared with the encoder
+  records. Two encoders leave no macro space; one encoder leaves a 16-byte
+  record (up to 7 events); no encoders leave a 32-byte record (up to 14 events
+  / 7 key presses). A 14-event A..G macro was verified on hardware: key 1
+  typed `abcdefg`. The emulator's 127-event result is staging-only.
+- Added `tools/macro_hw_test.py` (safe hardware test with backup/restore) and
+  `tools/selftest_macro.py` (offline protocol checks, wired into
+  `tools/run_all.sh`).
+
 ## v1.1.0 — 2026-11-07
 
 ### Added

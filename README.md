@@ -35,14 +35,19 @@ columns scroll.
 | **Lighting** | 7-colour palette, 9 vendor-visible effect modes with speed, direction, symmetry, single-colour, reaction and an active-colour mask (hidden effect numbers are not offered; see `docs/KNOWN-LIMITATIONS.md`) |
 | **Switches** | `BALTF4`, `BWINLOCK`, `BALLKEYSLOCK`, `KEYSMODE` — four options in one byte |
 | **Encoder** | Rotation: 17 Consumer-page functions, or a single-key keyboard macro (the only way it can send an ordinary key), with a configurable 8–120 ms hold (default 48). Press: a normal keymap slot |
-| **Macros** | Factory shortcuts Cut/Copy/Paste/Boss/SelectAll (protocol recovered, not editable in the tools yet) |
+| **Macros** | Factory shortcuts and multi-step records up to 14 events; the real 32-byte payload is shared with the encoders, so a macro costs one or both rotation directions. Editing is not exposed in the tools yet |
 | **Backup** | Dump the device memory and restore an exact known-good frame stream |
 
-Macros are understood for the factory `ShortcutMacro` group: assigning Cut,
-Copy, Paste, Boss or SelectAll to a key writes a per-key marker, a `MACRO_MAP`
-slot and a 16-byte record that encodes one shortcut (Ctrl+X / Ctrl+C / Ctrl+V /
-Win+D / Ctrl+A). The CLI and the WebHID page do **not** expose macro editing
-yet; they keep the macro area of the template unchanged. See `PROTOCOL.md`.
+Macros are understood for the factory `ShortcutMacro` group and for arbitrary
+multi-step records. A record is a 2-byte header plus 2-byte events: a down/up
+tag with the hold in 8 ms units, and a HID usage. The real-hardware function
+payload is only **32 bytes** and is shared with the encoder records: two
+encoders leave no room, one encoder leaves a 16-byte record (up to 7 events),
+no encoders leave a 32-byte record (up to 14 events, i.e. 7 key presses).
+Verified on hardware with a 14-event A..G record that typed `abcdefg`. The
+emulator accepted up to 127 events, but that is a staging-only limit, not a
+hardware budget. The CLI and the WebHID page do **not** expose macro editing
+yet; see `PROTOCOL.md` and `docs/KNOWN-LIMITATIONS.md`.
 
 ## Working preset: free keys, encoder keys, no media
 
@@ -383,11 +388,13 @@ Other limitations:
   layout, `0x00E0` after the burning tool), while the upload stream writes the
   two phases; `restore` replays a captured frame stream, not a memory image.
   Keep the artifact from `backup --from-device`.
-* Macro assignment is not editable in the CLI/WebHID yet: the protocol is
-  documented (per-key markers, `MACRO_MAP` slots, 16-byte shortcut records),
-  but the tools only replay the template's macro area.
-* Text macros and custom macro groups are still open; a custom single-letter
-  macro produced no record in the vendor application.
+* Macro assignment is not editable in the CLI/WebHID yet: the record format is
+  understood and verified on hardware, but the tools only replay the template's
+  macro area. The real payload is 32 bytes and is shared with the encoder
+  records; see `docs/KNOWN-LIMITATIONS.md`.
+* Text macros are just key sequences (there is no separate text encoding). The
+  32-byte payload limits them to 14 events / 7 characters when both encoders
+  are off. Custom macro groups are still open.
 * Media functions can be put on the 8 keys by the vendor application (the
   keymap value is `0xC9 + n`), but the CLI and the page do not expose that yet:
   they assign media functions to encoder rotation only.

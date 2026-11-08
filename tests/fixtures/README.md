@@ -36,6 +36,18 @@ sh tools/run_all.sh
 `captures/macro5.jsonl` is present and otherwise leaves the committed file
 alone.
 
+## Hardware macro test
+
+`tools/macro_hw_test.py` is a manual test, not part of `tools/run_all.sh`. It
+reads the current device state, writes a 14-event A..G record into the 32-byte
+function payload, asks for a physical key press, and restores the exact
+pre-test state. On a `0x00E0` unit it verified that the firmware executes
+multi-step macros: key 1 typed `abcdefg`. The same run showed that the payload
+window ends at `0x267` (writes at `0x268` are ignored).
+
+`tools/selftest_macro.py` pins the record format, the factory records and the
+32-byte budget offline; it runs as part of `tools/run_all.sh`.
+
 The macro session was produced with the Macro category enabled (see
 `PROTOCOL.md`, section 4): enable `macro/macroGrp.ini` (`macGrpNum=1`,
 `0=ShortcutMacro`), copy `ShortcutMacro.dat` into the skin's `macro/` directory,

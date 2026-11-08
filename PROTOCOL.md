@@ -262,10 +262,67 @@ selector in the WebHID page. On the test unit 24 ms felt snappier than 48 ms;
 polling limit (see `docs/KNOWN-LIMITATIONS.md`).
 
 One custom single-letter macro ("Z") produced the keymap marker but **no**
-record; the application only uploaded the keymap byte. This experiment is
-inconclusive: the hand-written `ShortcutMacro.dat` may not have been a valid
-custom macro set. Text macros and custom groups stay open until they are
-re-checked with the vendor editor or on hardware.
+record; the application only uploaded the keymap byte. This is consistent with
+the 32-byte hardware window described below: the record did not fit alongside
+the encoder records. Text macros are just key sequences; custom groups stay
+open.
+
+### Macro records on real hardware (November 2026)
+
+The factory records above are the 4-event case of a general format. A macro
+record is a stream of 2-byte events:
+
+```
+01 00 | <tag> <value> | ... | zero padding to an 8-byte multiple
+```
+
+- tag bit 7: `1` = key-down, `0` = key-up; bits 0..3 = hold in 8 ms units
+  (1..15, i.e. 8..120 ms);
+- value: HID usage. `0x04` = A, `0x5D` = Keypad 5, `0xE0..0xE7` = modifiers;
+- modifiers are ordinary events: Ctrl+Shift+A is six events, not a bitmask;
+- record length = `2 + 2*N`, rounded up to 8. `N` is the low 7 bits of the
+  function-table kind byte (`0x04`, `0x06`, ..., `0x7F`). A kind with bit 7
+  set (`0x80`, i.e. 128 events) is rejected: the application omits the record.
+
+The real-hardware function payload is a fixed **32-byte window**:
+
+| layout | window | encoder record |
+|--------|--------|----------------|
+| `0x00E0` | `0x248..0x267` | 16 bytes |
+| `0x0118` | `0x280..0x29F` | 16 bytes |
+
+The `0x00E0` unit was exercised with a macro; the `0x0118` window is inferred
+from the 32-byte encoder payload of its hardware capture (the same limit is
+expected, but only `0x00E0` was tested with a macro).
+
+Writes past the window are ignored (tested at `0x268` on a `0x00E0` unit).
+The window is shared with the two encoder records, so the budget is:
+
+| records | what fits |
+|---------|-----------|
+| two encoders | no macro space |
+| one encoder + one macro | 16-byte macro, up to 7 events |
+| no encoders, one macro | 32-byte macro, up to 14 events (7 full key presses) |
+| no encoders, two macros | two 16-byte macros, up to 7 events each |
+
+A 15-event record is exactly 32 bytes but ends with a key-down, so 14 events
+(seven down/up pairs) is the safe maximum. A 16-event record is 40 bytes and
+does not fit.
+
+Verified on hardware (November 2026): a 14-event A..G record at `0x248`,
+entry 10 `07 0e 48 02 00`, and keymap marker `0xAF` in both phases made key 1
+type `abcdefg`. The pre-test state was restored afterwards.
+`tools/macro_hw_test.py` reproduces the procedure with a backup/restore step;
+`tools/selftest_macro.py` pins the offline checks.
+
+The emulator/staging layout accepted records up to 127 events (256 bytes) and
+five macro keys; that is a property of the fake memory image, not of the
+firmware. Do not use it as the budget for the tools.
+
+The vendor application on the `0x00E0` layout did **not** assign the macro:
+after Apply it wrote `Full-key Locked` (`0xF3`) instead of `0xAF` and left the
+function table inert. A direct protocol write works, so the limitation is in
+the application path, not in the firmware.
 
 "Default" in the dialog restores the factory value of that key (key 1 →
 `0x59`). The tools write the byte as given, so any of these values can be put on
@@ -501,6 +558,11 @@ reference run:
   | `0x03` | the entry refers to an internal function  |
   | `0x04` | an active record: a Consumer function, a macro shortcut, or the media-mode encoder |
 
+  For a keyboard macro record the kind byte is the **event count in the low
+  7 bits**: `0x04` = 4 events, `0x06` = 6, ..., `0x7F` = 127. A kind with bit
+  7 set (`0x80`, i.e. 128 events) is rejected and the record is omitted.
+  Consumer/encoder records use `0x04` as a record type, not as a count.
+
   * In the default configuration (media mode) the entries 0..19 read
     `07 00 68 01 00`, entry 20 reads `07 04 68 01 00` (address `0x000168`, the
     record of `USCROLL0`) and entry 21 reads `07 04 78 01 00` (address
@@ -525,12 +587,16 @@ reference run:
     give entries 10..14 = `07 04 68/78/88/98/A8 01 00`, entries 15..19 inert
     at `0x01B8`, and the encoders at `0x01B8`/`0x01C8`. The keymap then holds
     the per-key macro markers from the previous section.
-  * The payload is not of a fixed length. A record is 8 or 16 bytes and the
-    application inserts and removes them, so the addresses in the index move:
-    with eight bytes more the whole payload shifts by eight (entries 0..10 point
-    at `0x168` and the rest at `0x170`), and with `CurConfig = 3`/`4` the payload
-    collapses to one byte. Measured range of the end of phase B: `0x187` (base)
-    to `0x1C7` (five extra 16-byte macro records).
+  * The payload is not of a fixed length in the emulator/staging layout. A
+    record is 8 or 16 bytes and the application inserts and removes them, so
+    the addresses in the index move: with eight bytes more the whole payload
+    shifts by eight (entries 0..10 point at `0x168` and the rest at `0x170`),
+    and with `CurConfig = 3`/`4` the payload collapses to one byte. Measured
+    range of the end of phase B: `0x187` (base) to `0x1C7` (five extra
+    16-byte macro records). **On real hardware the window is fixed at 32
+    bytes** (`0x248..0x267` for base `0x00E0`, `0x280..0x29F` for `0x0118`)
+    and is shared with the encoder records; see "Macro records on real
+    hardware" above. The staging addresses are not a hardware budget.
   * `UFN_F1..UFN_F12` do not touch the table: with `UFN_F1=170` and the media
     mode still on, only `0x00E9` changes (`0xCE` → `0xAA`).
   * The function number only rewrites the record body: `USCROLL0=11,3` changes

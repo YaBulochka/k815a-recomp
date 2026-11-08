@@ -16,7 +16,7 @@
 #
 #   X,Y    relative to the main window (as before)
 #   +X,Y   click a key of the device picture and wait for the dialog to appear
-#   @X,Y   relative to the key-assignment dialog (found by its size 605x686)
+#   @X,Y   relative to the key-assignment dialog (found by its width 605)
 #   %X,Y   relative to the drop-down pop-up window named "MainMenuDlg"
 #   !KEYSYM  send a key press to the dialog (for the "Keyboard keys" box)
 #   #X,Y   absolute screen coordinates (for anything else)
@@ -87,8 +87,9 @@ restore() {
 }
 
 # Window id of the key-assignment dialog: the top-level window named like the
-# main one, but 605x686.  The dialog needs a moment to appear after the click,
-# so it is polled for up to about 10 s.
+# main one, but 605 px wide (686 or 844 px tall depending on the build).
+# The dialog needs a moment to appear after the click, so it is polled for up
+# to about 10 s.
 dialog_wid() {
     n=${1:-20}
     i=0
@@ -103,7 +104,7 @@ dialog_wid() {
             HEIGHT=""
             eval "$(xdotool getwindowgeometry --shell "$w" 2>/dev/null)" || true
             if [ -n "${K815_DEBUG:-}" ]; then echo "  dialog_wid: $w W=$WIDTH H=$HEIGHT" >&2; fi
-            if [ "$WIDTH" = 605 ] && [ "$HEIGHT" = 686 ]; then
+            if [ "$WIDTH" = 605 ] && [ "$HEIGHT" -ge 600 ] 2>/dev/null; then
                 echo "$w"
                 return 0
             fi

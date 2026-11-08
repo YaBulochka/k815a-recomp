@@ -89,8 +89,21 @@ and "after" gives a ready map: what is written and at which address.
       The modifier mapping is inferred; the record layout is in `PROTOCOL.md`.
 - [x] Regression fixture `tests/fixtures/macro5.jsonl.gz` (five keys) and checks in
       `tools/selftest_cli.py`; `k815ctl show` prints the function table.
-- [~] Still open: the fixed bytes of the record, text (non-shortcut) macros (a custom
-      "Z" macro produced no record), custom macro groups. Verify on hardware.
+- [x] Hardware verification (November 2026): a 14-event A..G record at `0x248`
+      with entry 10 `07 0e 48 02 00` and keymap marker `0xAF` made key 1 type
+      `abcdefg`. The record format is a 2-byte header plus 2-byte down/up
+      events; modifiers are separate events.
+- [x] Real payload limit: the function window is **32 bytes** (`0x248..0x267`
+      on `0x00E0`, `0x280..0x29F` on `0x0118`) and is shared with the encoder
+      records (16 bytes each). Two encoders leave no macro space; one encoder
+      leaves a 16-byte record (up to 7 events); no encoders leave a 32-byte
+      record (up to 14 events / 7 key presses). The emulator's 127-event
+      result is staging-only.
+- [~] Still open: macro editing in the CLI/WebHID, text macros beyond a key
+      sequence, custom macro groups. The vendor application on `0x00E0` does
+      not assign the macro (it writes `Full-key Locked`); the direct protocol
+      path works. See `PROTOCOL.md`, `docs/KNOWN-LIMITATIONS.md`,
+      `tools/macro_hw_test.py` and `tools/selftest_macro.py`.
 
 ### Stage 3. Our own tool
 
@@ -147,9 +160,10 @@ and "after" gives a ready map: what is written and at which address.
 - [x] `tools/run_all.sh` — one command for the whole suite: syntax checks plus
       both offline selftests, and with `--full` the end-to-end test as well
       (6/6 stages pass on this machine).
-- [ ] Macro editing in WebHID/CLI. The protocol is recovered (per-key markers,
-      `MACRO_MAP` slots, 16-byte shortcut records), but the tools keep the
-      template's macro area unchanged. Text macros and custom groups are open.
+- [ ] Macro editing in WebHID/CLI. The protocol is recovered and verified on
+      hardware (2-byte events, up to 14 events in the 32-byte payload, shared
+      with the encoders), but the tools keep the template's macro area
+      unchanged. Text macros beyond a key sequence and custom groups are open.
 
 ### WebHID end-to-end test (done)
 

@@ -63,6 +63,7 @@ fi
 
 # --- offline selftests ------------------------------------------------------ #
 run "model and CLI (tools/selftest_cli.py)" python3 tools/selftest_cli.py
+run "macro protocol (tools/selftest_macro.py)" python3 tools/selftest_macro.py
 if have node; then
     run "WebHID driver, JS vs Python (tools/selftest_webhid.py)" \
         python3 tools/selftest_webhid.py

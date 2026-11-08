@@ -163,9 +163,17 @@ without a backup and the burning tool available.
   usage per direction. Longer macros, modifiers or multi-step sequences are not
   exposed for rotation.
 * **Encoder press**: keymap slot 49. Slot 41 is a no-op on this firmware.
-* **Macros**: the factory Cut/Copy/Paste/Boss/SelectAll shortcuts are understood
-  and preserved, but not editable in the tools. Text macros and custom groups are
-  still open.
+* **Macros**: the record format is understood and the device executes
+  multi-step macros. Verified on hardware: a 14-event A..G record made key 1
+  type `abcdefg`. The hardware function payload is only **32 bytes** and is
+  shared with the encoder records (16 bytes each), so the practical budget is:
+  two encoders → no macro space; one encoder → a 16-byte record, up to 7
+  events; no encoders → a 32-byte record, up to 14 events (7 key presses).
+  A 15-event record is exactly 32 bytes but ends with a key-down; 16 events
+  (40 bytes) do not fit. The emulator accepted up to 127 events, but that is a
+  staging-only limit and not a hardware budget. The vendor application on the
+  `0x00E0` layout writes `Full-key Locked` instead of a macro marker; the
+  direct protocol path works. Editing is not exposed by the CLI/page yet.
 * **Switches**: four bits (`BALTF4`, `BWINLOCK`, `BALLKEYSLOCK`, `KEYSMODE`) in
   one byte.
 * **Session**: the whole write is sent at once; there are no incremental writes.
